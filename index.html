@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>&#x05E4;&#x05D2;&#x05D9;&#x05D4; &#x05D1;&#x05E2;&#x05D9;&#x05E8; - &#x05E9;&#x05EA;&#x05E3; &#x05DC;&#x05E4;&#x05E0;&#x05D9; &#x05E9;&#x05E0;&#x05D2;&#x05DE;&#x05E8;</title>
+  <meta name="description" content="&#x05E4;&#x05D2;&#x05D9;&#x05D4; &#x05D1;&#x05E2;&#x05D9;&#x05E8; - &#x05E9;&#x05EA;&#x05E3; &#x05DE;&#x05D5;&#x05E6;&#x05E8;&#x05D9;&#x05DD; &#x05E9;&#x05E2;&#x05D5;&#x05DE;&#x05D3;&#x05D9;&#x05DD; &#x05DC;&#x05E4;&#x05D5;&#x05D2; &#x05D5;&#x05E1;&#x05D8;&#x05D5;&#x05E7; &#x05D1;&#x05D6;&#x05D5;&#x05DC;." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <link rel="icon" href="images/logo.svg" />
+  <link rel="apple-touch-icon" href="images/logo.svg" />
+  <link rel="manifest" href="manifest.json" />
+  <meta name="theme-color" content="#0c1016" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<!-- SPLASH -->
+<div id="splash-screen">
+  <div class="splash-inner">
+    <div class="splash-logo">
+      <img class="splash-icon" src="images/logo.svg" alt="&#x05E4;&#x05D2;&#x05D9;&#x05D4; &#x05D1;&#x05E2;&#x05D9;&#x05E8;" width="88" height="88" style="width:88px;height:88px" />
+      <h1 class="splash-title">&#x05E4;&#x05D2;&#x05D9;&#x05D4; &#x05D1;&#x05E2;&#x05D9;&#x05E8;</h1>
+      <p class="splash-sub">&#x05E9;&#x05EA;&#x05E3; &#x05DC;&#x05E4;&#x05E0;&#x05D9; &#x05E9;&#x05E0;&#x05D2;&#x05DE;&#x05E8;</p>
+    </div>
+    <div class="splash-loader"><div class="loader-bar"></div></div>
+  </div>
+</div>
+
+<div id="app" class="hidden">
+
+  <!-- TOP NAV -->
+  <header class="top-nav">
+    <div class="nav-brand" onclick="showPage('feed')">
+      <img class="brand-icon" src="images/logo.svg" alt="" width="34" height="34" style="width:34px;height:34px" />
+      <span class="brand-name" data-i18n="brand">&#x05E4;&#x05D2;&#x05D9;&#x05D4; &#x05D1;&#x05E2;&#x05D9;&#x05E8;</span>
+    </div>
+    <div class="nav-center">
+      <div class="search-bar">
+        <span class="search-icon">&#x1F50D;</span>
+        <input type="text" data-i18n-ph="search_ph" placeholder="&#x05D7;&#x05E4;&#x05E9; &#x05DE;&#x05D5;&#x05E6;&#x05E8;&#x05D9;&#x05DD;, &#x05E2;&#x05E8;&#x05D9;&#x05DD;, &#x05E2;&#x05E1;&#x05E7;&#x05D9;&#x05DD;..." id="search-input" />
+      </div>
+    </div>
+    <div class="nav-actions">
+      <button class="auth-btn" id="auth-btn" onclick="authButtonClick()">&#x1F511;</button>
+      <select id="lang-switcher" class="lang-switcher" aria-label="Language" style="background:rgba(255,255,255,0.08);color:#fff;border:1px solid rgba(255,255,255,0.15);border-radius:10px;padding:6px 8px;font-size:0.85rem;cursor:pointer;outline:none"></select>
+      <button class="nav-btn" onclick="openSettings()" title="&#x05D4;&#x05D2;&#x05D3;&#x05E8;&#x05D5;&#x05EA;">&#x2699;&#xFE0F;</button>
+      <button class="nav-btn notification-btn" onclick="toggleNotifications()" id="notif-btn">
+        <span class="notif-icon">&#x1F514;</span>
+        <span class="notif-badge" id="notif-badge">2</span>
+      </button>
+      <div class="nav-avatar" onclick="showPage('profile')">
+        <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=Dana&backgroundColor=b6e3f4" alt="profile" />
+      </div>
+    </div>
+  </header>
+
+  <!-- NOTIFICATIONS PANEL -->
+  <div class="notifications-panel hidden" id="notifications-panel">
+    <div class="notif-header">
+      <h3 data-i18n="notifications">&#x05D4;&#x05EA;&#x05E8;&#x05D0;&#x05D5;&#x05EA;</h3>
+      <button onclick="toggleNotifications()">&#x2715;</button>
+    </div>
+    <div class="notif-list" id="notif-list"></div>
+  </div>
+
+  <!-- MAIN LAYOUT -->
+  <div class="main-layout">
+
+    <!-- SIDEBAR LEFT -->
+    <aside class="sidebar-left">
+      <nav class="side-nav">
+        <button class="side-btn active" id="btn-feed" onclick="showPage('feed')">
+          <span class="side-icon">&#x1F3E0;</span><span class="side-label" data-i18n="nav_feed">&#x05E4;&#x05D9;&#x05D3;</span>
+        </button>
+        <button class="side-btn" id="btn-explore" onclick="showPage('explore')">
+          <span class="side-icon">&#x1F5FA;&#xFE0F;</span><span class="side-label" data-i18n="nav_explore">&#x05D2;&#x05DC;&#x05D4;</span>
+        </button>
+        <button class="side-btn" id="btn-saved" onclick="showPage('saved')">
+          <span class="side-icon">&#x1F516;</span><span class="side-label" data-i18n="nav_saved">&#x05E9;&#x05DE;&#x05D5;&#x05E8;&#x05D9;&#x05DD;</span>
+        </button>
+        <button class="side-btn" id="btn-chat" onclick="showPage('chat')">
+          <span class="side-icon">&#x1F4AC;</span><span class="side-label" data-i18n="nav_chat">&#x05E6;&#x27;&#x05D0;&#x05D8;</span>
+          <span class="chat-badge">2</span>
+        </button>
+        <button class="side-btn" id="btn-profile" onclick="showPage('profile')">
+          <span class="side-icon">&#x1F464;</span><span class="side-label" data-i18n="nav_profile">&#x05E4;&#x05E8;&#x05D5;&#x05E4;&#x05D9;&#x05DC;</span>
+        </button>
+      </nav>
+      <div class="sidebar-stats">
+        <div class="stat-item"><span class="stat-num">127</span><span class="stat-lbl" data-i18n="stat_products_saved">&#x05DE;&#x05D5;&#x05E6;&#x05E8;&#x05D9;&#x05DD; &#x05E0;&#x05E9;&#x05DE;&#x05E8;&#x05D5;</span></div>
+        <div class="stat-item"><span class="stat-num">48</span><span class="stat-lbl" data-i18n="stat_users_nearby">&#x05DE;&#x05E9;&#x05EA;&#x05DE;&#x05E9;&#x05D9;&#x05DD; &#x05E7;&#x05E8;&#x05D5;&#x05D1;&#x05D9;&#x05DD;</span></div>
+        <div class="stat-item"><span class="stat-num">12</span><span class="stat-lbl" data-i18n="stat_active_biz">&#x05E2;&#x05E1;&#x05E7;&#x05D9;&#x05DD; &#x05E4;&#x05E2;&#x05D9;&#x05DC;&#x05D9;&#x05DD;</span></div>
+      </div>
+    </aside>
+
+    <!-- MAIN CONTENT -->
+    <main class="main-content">
+
+      <!-- PAGE: FEED -->
+      <section id="page-feed" class="page active">
+        <!-- Facebook-style composer -->
+        <div class="composer">
+          <div class="composer-top" onclick="openPostModal()">
+            <img class="composer-avatar" src="https://api.dicebear.com/7.x/avataaars/svg?seed=Dana&backgroundColor=b6e3f4" alt="" />
+            <div class="composer-input" data-i18n="composer_ph">&#x05DE;&#x05D4; &#x05EA;&#x05E8;&#x05E6;&#x05D4; &#x05DC;&#x05E9;&#x05EA;&#x05E3;?</div>
+          </div>
+          <div class="composer-actions">
+            <button class="composer-btn" onclick="openPostModal()"><span class="composer-btn-icon">&#x1F4F7;</span><span data-i18n="composer_photo">&#x05EA;&#x05DE;&#x05D5;&#x05E0;&#x05D4; / &#x05D5;&#x05D9;&#x05D3;&#x05D0;&#x05D5;</span></button>
+            <button class="composer-btn" onclick="openPostModal()"><span class="composer-btn-icon">&#x1F3F7;&#xFE0F;</span><span data-i18n="composer_stock">&#x05E1;&#x05D8;&#x05D5;&#x05E7; / &#x05DE;&#x05DB;&#x05D9;&#x05E8;&#x05D4;</span></button>
+            <button class="composer-btn" onclick="openPostModal()"><span class="composer-btn-icon">&#x1F951;</span><span data-i18n="composer_pagia">&#x05E4;&#x05D2;&#x05D9;&#x05D4;</span></button>
+          </div>
+        </div>
+        <div class="feed-switcher">
+          <button class="feed-tab active" id="tab-pagia" onclick="switchFeed('pagia', this)">
+            <span class="feed-tab-icon">&#x1F951;</span>
+            <span class="feed-tab-label" data-i18n="tab_pagia">&#x05E4;&#x05D2;&#x05D9;&#x05D4; &#x05D1;&#x05E2;&#x05D9;&#x05E8;</span>
+            <span class="feed-tab-desc" data-i18n="tab_pagia_desc">&#x05DE;&#x05D5;&#x05E6;&#x05E8;&#x05D9;&#x05DD; &#x05E9;&#x05E2;&#x05D5;&#x05DE;&#x05D3;&#x05D9;&#x05DD; &#x05DC;&#x05E4;&#x05D5;&#x05D2;</span>
+          </button>
+          <button class="feed-tab" id="tab-stock" onclick="switchFeed('stock', this)">
+            <span class="feed-tab-icon">&#x1F3F7;&#xFE0F;</span>
+            <span class="feed-tab-label" data-i18n="tab_stock">&#x05E1;&#x05D8;&#x05D5;&#x05E7; &#x05D1;&#x05D6;&#x05D5;&#x05DC;</span>
+            <span class="feed-tab-desc" data-i18n="tab_stock_desc">&#x05E2;&#x05D5;&#x05D3;&#x05E4;&#x05D9; &#x05E1;&#x05D8;&#x05D5;&#x05E7; &#x05D1;&#x05DE;&#x05D7;&#x05D9;&#x05E8;</span>
+          </button>
+        </div>
+
+        <!-- Pagia filters -->
+        <div id="pagia-controls" class="feed-controls">
+          <div class="feed-title-row">
+            <h2 data-i18n="pagia_feed_title">&#x05E4;&#x05D9;&#x05D3; &#x05D4;&#x05E4;&#x05D2;&#x05D9;&#x05D5;&#x05EA;</h2>
+            <div class="filter-tabs">
+              <button class="filter-tab active" onclick="filterPagia(this,'all')" data-i18n="filter_all">&#x05D4;&#x05DB;&#x05DC;</button>
+              <button class="filter-tab" onclick="filterPagia(this,'today')" data-i18n="filter_today">&#x05D4;&#x05D9;&#x05D5;&#x05DD;</button>
+              <button class="filter-tab" onclick="filterPagia(this,'nearby')" data-i18n="filter_nearby">&#x05E7;&#x05E8;&#x05D5;&#x05D1; &#x05D0;&#x05DC;&#x05D9;</button>
+              <button class="filter-tab" onclick="filterPagia(this,'free')" data-i18n="filter_free">&#x05D7;&#x05D9;&#x05E0;&#x05DD;</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Stock filters -->
+        <div id="stock-controls" class="feed-controls hidden">
+          <div class="feed-title-row">
+            <h2 data-i18n="stock_feed_title">&#x05E1;&#x05D8;&#x05D5;&#x05E7; &#x05D1;&#x05D6;&#x05D5;&#x05DC;</h2>
+            <div class="filter-tabs">
+              <button class="filter-tab active" onclick="filterStock(this,'all')" data-i18n="filter_all">&#x05D4;&#x05DB;&#x05DC;</button>
+              <button class="filter-tab" onclick="filterStock(this,'business')" data-i18n="filter_business">&#x05E2;&#x05E1;&#x05E7;&#x05D9;&#x05DD;</button>
+              <button class="filter-tab" onclick="filterStock(this,'private')" data-i18n="filter_private">&#x05E4;&#x05E8;&#x05D8;&#x05D9;&#x05D9;&#x05DD;</button>
+              <button class="filter-tab" onclick="filterStock(this,'deal')" data-i18n="filter_deal">&#x05DE;&#x05D1;&#x05E6;&#x05E2;&#x05D9;&#x05DD; -50%+</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="feed-grid" id="feed-grid"></div>
+        <button class="fab" onclick="openPostModal()">&#x2795; <span data-i18n="fab_post">&#x05E4;&#x05E8;&#x05E1;&#x05DD; &#x05DE;&#x05D5;&#x05E6;&#x05E8;</span></button>
+      </section>
+
+      <!-- PAGE: EXPLORE -->
+      <section id="page-explore" class="page">
+        <div class="explore-hero">
+          <h2 data-i18n="explore_title">&#x05D2;&#x05DC;&#x05D4; &#x05D1;&#x05E2;&#x05D9;&#x05E8; &#x05E9;&#x05DC;&#x05DA;</h2>
+          <p data-i18n="explore_sub">&#x05E4;&#x05D2;&#x05D9;&#x05D5;&#x05EA;, &#x05E1;&#x05D8;&#x05D5;&#x05E7;&#x05D9;&#x05DD; &#x05D5;&#x05D3;&#x05D9;&#x05DC;&#x05D9;&#x05DD; &#x05E7;&#x05E8;&#x05D5;&#x05D1; &#x05D0;&#x05DC;&#x05D9;&#x05DA;</p>
+        </div>
+        <div class="explore-feed-toggle">
+          <button class="explore-toggle-btn active" onclick="setExploreMode('pagia',this)">&#x1F951; <span data-i18n="saved_pagia">&#x05E4;&#x05D2;&#x05D9;&#x05D5;&#x05EA;</span></button>
+          <button class="explore-toggle-btn" onclick="setExploreMode('stock',this)">&#x1F3F7;&#xFE0F; <span data-i18n="saved_stock">&#x05E1;&#x05D8;&#x05D5;&#x05E7;</span></button>
+        </div>
+        <h3 style="margin-bottom:12px" data-i18n="explore_categories">&#x05E7;&#x05D8;&#x05D2;&#x05D5;&#x05E8;&#x05D9;&#x05D5;&#x05EA;</h3>
+        <div class="category-grid">
+          <div class="cat-card" onclick="filterByTag('&#x05DE;&#x05D6;&#x05D5;&#x05DF;')"><span class="cat-emoji">&#x1F37D;&#xFE0F;</span><span class="cat-name" data-i18n="cat_food">&#x05DE;&#x05D6;&#x05D5;&#x05DF;</span><span class="cat-count" id="cat-food">0</span></div>
+          <div class="cat-card" onclick="filterByTag('&#x05D7;&#x05DC;&#x05D1;')"><span class="cat-emoji">&#x1F95B;</span><span class="cat-name" data-i18n="cat_dairy">&#x05D7;&#x05DC;&#x05D1;</span><span class="cat-count" id="cat-dairy">0</span></div>
+          <div class="cat-card" onclick="filterByTag('&#x05D9;&#x05E8;&#x05E7;&#x05D5;&#x05EA;')"><span class="cat-emoji">&#x1F966;</span><span class="cat-name" data-i18n="cat_veg">&#x05D9;&#x05E8;&#x05E7;&#x05D5;&#x05EA;</span><span class="cat-count" id="cat-veg">0</span></div>
+          <div class="cat-card" onclick="filterByTag('&#x05E0;&#x05D9;&#x05E7;&#x05D9;&#x05D5;&#x05DF;')"><span class="cat-emoji">&#x1F9F9;</span><span class="cat-name" data-i18n="cat_clean">&#x05E0;&#x05D9;&#x05E7;&#x05D9;&#x05D5;&#x05DF;</span><span class="cat-count" id="cat-clean">0</span></div>
+          <div class="cat-card" onclick="filterByTag('&#x05E7;&#x05D5;&#x05E1;&#x05DE;&#x05D8;&#x05D9;&#x05E7;&#x05D4;')"><span class="cat-emoji">&#x1F484;</span><span class="cat-name" data-i18n="cat_cosm">&#x05E7;&#x05D5;&#x05E1;&#x05DE;&#x05D8;&#x05D9;&#x05E7;&#x05D4;</span><span class="cat-count" id="cat-cosm">0</span></div>
+          <div class="cat-card" onclick="filterByTag('&#x05E9;&#x05EA;&#x05D9;&#x05D9;&#x05D4;')"><span class="cat-emoji">&#x1F964;</span><span class="cat-name" data-i18n="cat_drinks">&#x05E9;&#x05EA;&#x05D9;&#x05D9;&#x05D4;</span><span class="cat-count" id="cat-drinks">0</span></div>
+        </div>
+        <h3 style="margin-bottom:12px" data-i18n="explore_by_city">&#x05DC;&#x05E4;&#x05D9; &#x05E2;&#x05D9;&#x05E8;</h3>
+        <div class="city-grid">
+          <div class="city-card" onclick="filterByCity('&#x05EA;&#x05DC; &#x05D0;&#x05D1;&#x05D9;&#x05D1;')"><span class="city-emoji">&#x1F306;</span><span class="city-name" data-i18n="city_tlv">&#x05EA;&#x05DC; &#x05D0;&#x05D1;&#x05D9;&#x05D1;</span><span class="city-count" id="city-tlv">34</span></div>
+          <div class="city-card" onclick="filterByCity('&#x05D9;&#x05E8;&#x05D5;&#x05E9;&#x05DC;&#x05D9;&#x05DD;')"><span class="city-emoji">&#x1F54C;</span><span class="city-name" data-i18n="city_jlm">&#x05D9;&#x05E8;&#x05D5;&#x05E9;&#x05DC;&#x05D9;&#x05DD;</span><span class="city-count" id="city-jlm">21</span></div>
+          <div class="city-card" onclick="filterByCity('&#x05D7;&#x05D9;&#x05E4;&#x05D4;')"><span class="city-emoji">&#x2693;</span><span class="city-name" data-i18n="city_hfa">&#x05D7;&#x05D9;&#x05E4;&#x05D4;</span><span class="city-count" id="city-hfa">15</span></div>
+          <div class="city-card" onclick="filterByCity('&#x05E0;&#x05EA;&#x05E0;&#x05D9;&#x05D4;')"><span class="city-emoji">&#x1F30A;</span><span class="city-name" data-i18n="city_ntn">&#x05E0;&#x05EA;&#x05E0;&#x05D9;&#x05D4;</span><span class="city-count" id="city-ntn">12</span></div>
+          <div class="city-card" onclick="filterByCity('&#x05D1;&#x05D0;&#x05E8; &#x05E9;&#x05D1;&#x05E2;')"><span class="city-emoji">&#x1F3DC;&#xFE0F;</span><span class="city-name" data-i18n="city_bs">&#x05D1;&#x05D0;&#x05E8; &#x05E9;&#x05D1;&#x05E2;</span><span class="city-count" id="city-bs">9</span></div>
+          <div class="city-card" onclick="filterByCity('&#x05E8;&#x05D0;&#x05E9;&#x05D5;&#x05DF; &#x05DC;&#x05E6;&#x05D9;&#x05D5;&#x05DF;')"><span class="city-emoji">&#x1F333;</span><span class="city-name" data-i18n="city_rl">&#x05E8;&#x05D0;&#x05E9;&#x05D5;&#x05DF; &#x05DC;&#x05E6;&#x05D9;&#x05D5;&#x05DF;</span><span class="city-count" id="city-rl">7</span></div>
+        </div>
+        <div class="trending-tags">
+          <h3 data-i18n="trending_tags">&#x05EA;&#x05D2;&#x05D9;&#x05D5;&#x05EA; &#x05E4;&#x05D5;&#x05E4;&#x05D5;&#x05DC;&#x05E8;&#x05D9;&#x05D5;&#x05EA;</h3>
+          <div class="tags-row">
+            <span class="tag-pill" onclick="filterByTag('&#x05D7;&#x05D9;&#x05E0;&#x05DD;')">&#x1F193; <span data-i18n="tag_free">&#x05D7;&#x05D9;&#x05E0;&#x05DD;</span></span>
+            <span class="tag-pill" onclick="filterByTag('&#x05E1;&#x05D8;&#x05D5;&#x05E7;')">&#x1F4E6; <span data-i18n="tag_stock">&#x05E1;&#x05D8;&#x05D5;&#x05E7;</span></span>
+            <span class="tag-pill" onclick="filterByTag('&#x05D8;&#x05D1;&#x05E2;&#x05D5;&#x05E0;&#x05D9;')">&#x1F331; <span data-i18n="tag_vegan">&#x05D8;&#x05D1;&#x05E2;&#x05D5;&#x05E0;&#x05D9;</span></span>
+            <span class="tag-pill" onclick="filterByTag('&#x05D1;&#x05D9;&#x05EA;&#x05D9;')">&#x1F3E0; <span data-i18n="tag_home">&#x05D1;&#x05D9;&#x05EA;&#x05D9;</span></span>
+            <span class="tag-pill" onclick="filterByTag('&#x05E2;&#x05E1;&#x05E7;')">&#x1F3E2; <span data-i18n="tag_business">&#x05E2;&#x05E1;&#x05E7;</span></span>
+            <span class="tag-pill" onclick="filterByTag('&#x05DB;&#x05E9;&#x05E8;')">&#x2728; <span data-i18n="tag_kosher">&#x05DB;&#x05E9;&#x05E8;</span></span>
+          </div>
+        </div>
+      </section>
+
+      <!-- PAGE: SAVED -->
+      <section id="page-saved" class="page">
+        <div class="saved-header">
+          <h2>&#x1F516; <span data-i18n="saved_title">&#x05E9;&#x05DE;&#x05D5;&#x05E8;&#x05D9;&#x05DD; &#x05E9;&#x05DC;&#x05D9;</span></h2>
+          <div class="filter-tabs">
+            <button class="filter-tab active" onclick="renderSaved('all',this)" data-i18n="filter_all">&#x05D4;&#x05DB;&#x05DC;</button>
+            <button class="filter-tab" onclick="renderSaved('pagia',this)" data-i18n="saved_pagia">&#x05E4;&#x05D2;&#x05D9;&#x05D5;&#x05EA;</button>
+            <button class="filter-tab" onclick="renderSaved('stock',this)" data-i18n="saved_stock">&#x05E1;&#x05D8;&#x05D5;&#x05E7;</button>
+          </div>
+        </div>
+        <div class="feed-grid" id="saved-grid"></div>
+      </section>
+
+      <!-- PAGE: CHAT -->
+      <section id="page-chat" class="page">
+        <div class="chat-layout">
+          <div class="chat-list" id="chat-conversations"></div>
+          <div class="chat-window" id="chat-window">
+            <div class="chat-empty">
+              <span>&#x1F4AC;</span>
+              <p data-i18n="chat_empty">&#x05D1;&#x05D7;&#x05E8; &#x05E9;&#x05D9;&#x05D7;&#x05D4; &#x05DE;&#x05D4;&#x05E8;&#x05E9;&#x05D9;&#x05DE;&#x05D4;</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- PAGE: PROFILE -->
+      <section id="page-profile" class="page">
+        <div class="profile-hero">
+          <div class="profile-cover"></div>
+          <div class="profile-info">
+            <div class="profile-avatar-wrap">
+              <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=Dana&backgroundColor=b6e3f4" alt="profile" class="profile-avatar" />
+              <span class="profile-badge">&#x2B50;</span>
+            </div>
+            <div class="profile-meta">
+              <h2 id="profile-name">&#x05D3;&#x05E0;&#x05D0; &#x05D0;&#x05D1;&#x05E8;&#x05D4;&#x05DD;</h2>
+              <span class="profile-type-badge private-badge">&#x1F464; <span data-i18n="profile_private">&#x05E4;&#x05E8;&#x05D8;&#x05D9;</span></span>
+              <p class="profile-location" id="profile-location">&#x1F4CD; &#x05EA;&#x05DC; &#x05D0;&#x05D1;&#x05D9;&#x05D1;</p>
+              <p class="profile-bio" id="profile-bio">&#x05E9;&#x05D5;&#x05DE;&#x05E8;&#x05EA; &#x05E2;&#x05DC; &#x05D4;&#x05E1;&#x05D1;&#x05D9;&#x05D1;&#x05D4; &#x05D0;&#x05D7;&#x05D3; &#x05DE;&#x05D5;&#x05E6;&#x05E8; &#x05D1;&#x05DB;&#x05DC; &#x05E4;&#x05E2;&#x05DD; &#x1F331;</p>
+            </div>
+          </div>
+          <div class="profile-stats-row">
+            <div class="pstat"><strong id="pstat-posts">0</strong><span data-i18n="stat_posts">&#x05E4;&#x05E8;&#x05E1;&#x05D5;&#x05DE;&#x05D9;&#x05DD;</span></div>
+            <div class="pstat"><strong>89</strong><span data-i18n="stat_followers">&#x05E2;&#x05D5;&#x05E7;&#x05D1;&#x05D9;&#x05DD;</span></div>
+            <div class="pstat"><strong>43</strong><span data-i18n="stat_following">&#x05E2;&#x05D5;&#x05E7;&#x05D1; &#x05D0;&#x05D7;&#x05E8;&#x05D9;</span></div>
+            <div class="pstat"><strong id="pstat-saved">0</strong><span data-i18n="stat_saved">&#x05E9;&#x05DE;&#x05D5;&#x05E8;&#x05EA;&#x05D9;</span></div>
+          </div>
+          <button class="edit-profile-btn" onclick="openEditProfile()">&#x270F;&#xFE0F; <span data-i18n="edit_profile">&#x05E2;&#x05E8;&#x05D5;&#x05DA; &#x05E4;&#x05E8;&#x05D5;&#x05E4;&#x05D9;&#x05DC;</span></button>
+        </div>
+        <div class="profile-posts">
+          <div class="profile-post-tabs">
+            <button class="profile-post-tab active" onclick="switchProfileTab('pagia',this)">&#x1F951; <span data-i18n="my_pagia">&#x05E4;&#x05D2;&#x05D9;&#x05D5;&#x05EA; &#x05E9;&#x05DC;&#x05D9;</span></button>
+            <button class="profile-post-tab" onclick="switchProfileTab('stock',this)">&#x1F3F7;&#xFE0F; <span data-i18n="my_stock">&#x05E1;&#x05D8;&#x05D5;&#x05E7; &#x05E9;&#x05DC;&#x05D9;</span></button>
+          </div>
+          <div class="mini-grid" id="profile-grid"></div>
+        </div>
+      </section>
+
+    </main><!-- /main-content -->
+
+    <!-- SIDEBAR RIGHT -->
+    <aside class="sidebar-right">
+      <div class="widget expiry-widget">
+        <h3>&#x23F0; <span data-i18n="widget_expiry">&#x05E2;&#x05D5;&#x05DE;&#x05D3;&#x05D9;&#x05DD; &#x05DC;&#x05E4;&#x05D5;&#x05D2; &#x05D4;&#x05D9;&#x05D5;&#x05DD;</span></h3>
+        <div class="expiry-list" id="expiry-soon-list"></div>
+      </div>
+      <div class="widget deals-widget">
+        <h3>&#x1F4A5; <span data-i18n="widget_deals">&#x05D3;&#x05D9;&#x05DC;&#x05D9; &#x05E1;&#x05D8;&#x05D5;&#x05E7; &#x05D7;&#x05DE;&#x05D9;&#x05DD;</span></h3>
+        <div class="deals-list" id="deals-list"></div>
+      </div>
+      <div class="widget leaderboard-widget">
+        <h3>&#x1F3C6; <span data-i18n="widget_leaders">&#x05E9;&#x05D5;&#x05DE;&#x05E8;&#x05D9; &#x05D4;&#x05E1;&#x05D1;&#x05D9;&#x05D1;&#x05D4;</span></h3>
+        <div class="leaderboard-list">
+          <div class="lb-item"><span class="lb-rank gold">1</span><img src="https://api.dicebear.com/7.x/avataaars/svg?seed=Avi" alt="" class="lb-avatar"/><span class="lb-name">&#x05D0;&#x05D1;&#x05D9; &#x05D9;&#x05E9;&#x05E8;&#x05D0;&#x05DC;&#x05D9;</span><span class="lb-score">52</span></div>
+          <div class="lb-item"><span class="lb-rank silver">2</span><img src="https://api.dicebear.com/7.x/avataaars/svg?seed=BizCo" alt="" class="lb-avatar"/><span class="lb-name">&#x05E1;&#x05D5;&#x05E4;&#x05E8; &#x05DB;&#x05D4;&#x05DF; &#x1F3E2;</span><span class="lb-score">47</span></div>
+          <div class="lb-item"><span class="lb-rank bronze">3</span><img src="https://api.dicebear.com/7.x/avataaars/svg?seed=Rachel" alt="" class="lb-avatar"/><span class="lb-name">&#x05E8;&#x05D7;&#x05DC; &#x05DE;&#x05D5;&#x05E8;&#x05D2;&#x05E0;&#x05E9;&#x05D8;&#x05E8;&#x05DF;</span><span class="lb-score">39</span></div>
+        </div>
+      </div>
+    </aside>
+
+  </div><!-- /main-layout -->
+</div><!-- /app -->
+
+<!-- POST MODAL -->
+<div class="modal-overlay hidden" id="post-modal-overlay" onclick="closePostModal(event)">
+  <div class="modal post-modal">
+    <div class="modal-header">
+      <h3 data-i18n="modal_post_title">&#x05E4;&#x05E8;&#x05E1;&#x05DD; &#x05DE;&#x05D5;&#x05E6;&#x05E8;</h3>
+      <button class="modal-close" onclick="closePostModal()">&#x2715;</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label data-i18n="label_post_type">&#x05E1;&#x05D5;&#x05D2; &#x05E4;&#x05E8;&#x05E1;&#x05D5;&#x05DD;</label>
+        <div class="post-type-selector">
+          <button class="post-type-btn active" id="ptype-pagia" onclick="selectPostType('pagia')">
+            <span class="ptype-icon">&#x1F951;</span>
+            <span class="ptype-label" data-i18n="ptype_pagia">&#x05E4;&#x05D2;&#x05D9;&#x05D4;</span>
+            <span class="ptype-desc" data-i18n="ptype_pagia_desc">&#x05E2;&#x05D5;&#x05DE;&#x05D3; &#x05DC;&#x05E4;&#x05D5;&#x05D2;</span>
+          </button>
+          <button class="post-type-btn" id="ptype-stock" onclick="selectPostType('stock')">
+            <span class="ptype-icon">&#x1F3F7;&#xFE0F;</span>
+            <span class="ptype-label" data-i18n="ptype_stock">&#x05E1;&#x05D8;&#x05D5;&#x05E7; &#x05D1;&#x05D6;&#x05D5;&#x05DC;</span>
+            <span class="ptype-desc" data-i18n="ptype_stock_desc">&#x05E2;&#x05D5;&#x05D3;&#x05E3; &#x05E1;&#x05D8;&#x05D5;&#x05E7; / &#x05DE;&#x05DB;&#x05D9;&#x05E8;&#x05D4;</span>
+          </button>
+        </div>
+      </div>
+      <div class="form-group">
+        <label data-i18n="label_seller_type">&#x05E1;&#x05D5;&#x05D2; &#x05DE;&#x05D5;&#x05DB;&#x05E8;</label>
+        <div class="seller-type-selector">
+          <label class="seller-radio">
+            <input type="radio" name="seller-type" value="private" checked onchange="selectSellerType('private')" />
+            <span class="seller-radio-box"><span class="seller-radio-icon">&#x1F464;</span><span data-i18n="seller_private">&#x05E4;&#x05E8;&#x05D8;&#x05D9;</span></span>
+          </label>
+          <label class="seller-radio">
+            <input type="radio" name="seller-type" value="business" onchange="selectSellerType('business')" />
+            <span class="seller-radio-box"><span class="seller-radio-icon">&#x1F3E2;</span><span data-i18n="seller_business">&#x05E2;&#x05E1;&#x05E7;</span></span>
+          </label>
+        </div>
+      </div>
+      <div class="form-group hidden" id="biz-name-group">
+        <label data-i18n="label_biz_name">&#x05E9;&#x05DD; &#x05D4;&#x05E2;&#x05E1;&#x05E7;</label>
+        <input type="text" id="new-biz-name" data-i18n-ph="ph_biz_name" placeholder="&#x05DC;&#x05D3;&#x05D5;&#x05D2;&#x05DE;&#x05D0;: &#x05DE;&#x05D0;&#x05E4;&#x05D9;&#x05D9;&#x05D4; &#x05DC;&#x05D7;&#x05DE;&#x05E0;&#x05D9;&#x05D4;" />
+      </div>
+      <div class="form-group image-upload-area" id="image-upload-area" onclick="document.getElementById('img-input').click()">
+        <input type="file" id="img-input" accept="image/*,video/*" style="display:none" onchange="previewImage(event)" />
+        <div id="upload-placeholder">
+          <span class="upload-icon">&#x1F4F7;</span>
+          <p data-i18n="upload_click">&#x05DC;&#x05D7;&#x05E5; &#x05DC;&#x05D4;&#x05D5;&#x05E1;&#x05E4;&#x05EA; &#x05EA;&#x05DE;&#x05D5;&#x05E0;&#x05D4;</p>
+          <span class="upload-hint" data-i18n="upload_hint">JPG, PNG &#x05E2;&#x05D3; 10MB</span>
+        </div>
+        <img id="image-preview" class="hidden" alt="preview" />
+        <video id="video-preview" class="hidden" controls playsinline style="max-width:100%;border-radius:12px"></video>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label><span data-i18n="label_product_name">&#x05E9;&#x05DD; &#x05D4;&#x05DE;&#x05D5;&#x05E6;&#x05E8;</span> *</label>
+          <input type="text" id="new-product-name" data-i18n-ph="ph_product_name" placeholder="&#x05DC;&#x05D3;&#x05D5;&#x05D2;&#x05DE;&#x05D0;: &#x05D7;&#x05D5;&#x05DE;&#x05D5;&#x05E1; &#x05D1;&#x05D9;&#x05EA;&#x05D9;" />
+        </div>
+        <div class="form-group">
+          <label data-i18n="label_category">&#x05E7;&#x05D8;&#x05D2;&#x05D5;&#x05E8;&#x05D9;&#x05D4;</label>
+          <select id="new-product-cat">
+            <option value="&#x05DE;&#x05D6;&#x05D5;&#x05DF;" data-i18n="cat_food">&#x1F37D;&#xFE0F; &#x05DE;&#x05D6;&#x05D5;&#x05DF;</option>
+            <option value="&#x05D7;&#x05DC;&#x05D1;" data-i18n="cat_dairy_long">&#x1F95B; &#x05DE;&#x05D5;&#x05E6;&#x05E8;&#x05D9; &#x05D7;&#x05DC;&#x05D1;</option>
+            <option value="&#x05DC;&#x05D7;&#x05DD;" data-i18n="cat_bread">&#x1F35E; &#x05DC;&#x05D7;&#x05DD; &#x05D5;&#x05DE;&#x05D0;&#x05E4;&#x05D9;&#x05DD;</option>
+            <option value="&#x05D9;&#x05E8;&#x05E7;&#x05D5;&#x05EA;" data-i18n="cat_veg">&#x1F966; &#x05D9;&#x05E8;&#x05E7;&#x05D5;&#x05EA;</option>
+            <option value="&#x05E4;&#x05D9;&#x05E8;&#x05D5;&#x05EA;" data-i18n="cat_fruit">&#x1F353; &#x05E4;&#x05D9;&#x05E8;&#x05D5;&#x05EA;</option>
+            <option value="&#x05E9;&#x05EA;&#x05D9;&#x05D9;&#x05D4;" data-i18n="cat_drinks">&#x1F964; &#x05E9;&#x05EA;&#x05D9;&#x05D9;&#x05D4;</option>
+            <option value="&#x05E0;&#x05D9;&#x05E7;&#x05D9;&#x05D5;&#x05DF;" data-i18n="cat_clean">&#x1F9F9; &#x05E0;&#x05D9;&#x05E7;&#x05D9;&#x05D5;&#x05DF;</option>
+            <option value="&#x05E7;&#x05D5;&#x05E1;&#x05DE;&#x05D8;&#x05D9;&#x05E7;&#x05D4;" data-i18n="cat_cosm">&#x1F484; &#x05E7;&#x05D5;&#x05E1;&#x05DE;&#x05D8;&#x05D9;&#x05E7;&#x05D4;</option>
+            <option value="&#x05D0;&#x05D7;&#x05E8;" data-i18n="cat_other">&#x1F4E6; &#x05D0;&#x05D7;&#x05E8;</option>
+          </select>
+        </div>
+      </div>
+      <div id="expiry-field" class="form-row">
+        <div class="form-group">
+          <label><span data-i18n="label_expiry">&#x05EA;&#x05D0;&#x05E8;&#x05D9;&#x05DA; &#x05E4;&#x05E7;&#x05D9;&#x05E2;&#x05D4;</span> *</label>
+          <input type="date" id="new-product-expiry" />
+        </div>
+        <div class="form-group">
+          <label data-i18n="label_price">&#x05DE;&#x05D7;&#x05D9;&#x05E8; (&#x20AA; / &#x05D7;&#x05D9;&#x05E0;&#x05DD;)</label>
+          <div class="price-input-wrap">
+            <input type="number" id="new-product-price" placeholder="0" min="0" />
+            <label class="free-toggle">
+              <input type="checkbox" id="free-check" onchange="toggleFree(this)" /> <span data-i18n="free">&#x05D7;&#x05D9;&#x05E0;&#x05DD;</span>
+            </label>
+          </div>
+        </div>
+      </div>
+      <div id="stock-price-field" class="form-row hidden">
+        <div class="form-group">
+          <label data-i18n="label_orig_price">&#x05DE;&#x05D7;&#x05D9;&#x05E8; &#x05DE;&#x05E7;&#x05D5;&#x05E8;&#x05D9; (&#x20AA;)</label>
+          <input type="number" id="new-original-price" placeholder="100" min="0" />
+        </div>
+        <div class="form-group">
+          <label><span data-i18n="label_sale_price">&#x05DE;&#x05D7;&#x05D9;&#x05E8; &#x05DE;&#x05DB;&#x05D9;&#x05E8;&#x05D4; (&#x20AA;)</span> *</label>
+          <input type="number" id="new-sale-price" placeholder="50" min="0" oninput="calcDiscount()" />
+        </div>
+      </div>
+      <div id="quantity-field" class="form-group hidden">
+        <label data-i18n="label_quantity">&#x05DB;&#x05DE;&#x05D5;&#x05EA; &#x05D6;&#x05DE;&#x05D9;&#x05E0;&#x05D4;</label>
+        <input type="number" id="new-quantity" data-i18n-ph="ph_quantity" placeholder="&#x05DC;&#x05D3;&#x05D5;&#x05D2;&#x05DE;&#x05D0;: 50" min="1" />
+      </div>
+      <div class="form-group">
+        <label><span data-i18n="label_location">&#x05DE;&#x05D9;&#x05E7;&#x05D5;&#x05DD;</span> *</label>
+        <input type="text" id="new-product-location" data-i18n-ph="ph_location" placeholder="&#x05E2;&#x05D9;&#x05E8;, &#x05E9;&#x05DB;&#x05D5;&#x05E0;&#x05D4;..." />
+      </div>
+      <div class="form-group">
+        <label data-i18n="label_description">&#x05EA;&#x05D9;&#x05D0;&#x05D5;&#x05E8;</label>
+        <textarea id="new-product-desc" data-i18n-ph="ph_description" placeholder="&#x05E1;&#x05E4;&#x05E8; &#x05E2;&#x05DC; &#x05D4;&#x05DE;&#x05D5;&#x05E6;&#x05E8;..." rows="3"></textarea>
+      </div>
+      <div class="form-group">
+        <label data-i18n="label_tags">&#x05EA;&#x05D2;&#x05D9;&#x05D5;&#x05EA;</label>
+        <div class="tags-input-row">
+          <span class="form-tag" data-tag="&#x05D7;&#x05D9;&#x05E0;&#x05DD;" onclick="toggleTag(this)" data-i18n="tag_free">&#x05D7;&#x05D9;&#x05E0;&#x05DD;</span>
+          <span class="form-tag" data-tag="&#x05D8;&#x05D1;&#x05E2;&#x05D5;&#x05E0;&#x05D9;" onclick="toggleTag(this)" data-i18n="tag_vegan">&#x05D8;&#x05D1;&#x05E2;&#x05D5;&#x05E0;&#x05D9;</span>
+          <span class="form-tag" data-tag="&#x05DB;&#x05E9;&#x05E8;" onclick="toggleTag(this)" data-i18n="tag_kosher">&#x05DB;&#x05E9;&#x05E8;</span>
+          <span class="form-tag" data-tag="&#x05D1;&#x05D9;&#x05EA;&#x05D9;" onclick="toggleTag(this)" data-i18n="tag_home">&#x05D1;&#x05D9;&#x05EA;&#x05D9;</span>
+          <span class="form-tag" data-tag="&#x05E1;&#x05D8;&#x05D5;&#x05E7;" onclick="toggleTag(this)" data-i18n="tag_stock">&#x05E1;&#x05D8;&#x05D5;&#x05E7;</span>
+          <span class="form-tag" data-tag="&#x05D0;&#x05D7;&#x05E1;&#x05E0;&#x05D4; &#x05D0;&#x05E8;&#x05D5;&#x05DB;&#x05D4;" onclick="toggleTag(this)" data-i18n="tag_longstore">&#x05D0;&#x05D7;&#x05E1;&#x05E0;&#x05D4; &#x05D0;&#x05E8;&#x05D5;&#x05DB;&#x05D4;</span>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closePostModal()" data-i18n="cancel">&#x05D1;&#x05D9;&#x05D8;&#x05D5;&#x05DC;</button>
+      <button class="btn-primary" onclick="publishPost()">&#x1F680; <span data-i18n="publish_now">&#x05E4;&#x05E8;&#x05E1;&#x05DD; &#x05E2;&#x05DB;&#x05E9;&#x05D9;&#x05D5;</span></button>
+    </div>
+  </div>
+</div>
+
+<!-- DETAIL MODAL -->
+<div class="modal-overlay hidden" id="detail-modal-overlay" onclick="closeDetailModal(event)">
+  <div class="modal detail-modal" id="detail-modal">
+    <button class="modal-close" onclick="document.getElementById('detail-modal-overlay').classList.add('hidden');document.body.style.overflow=''">&#x2715;</button>
+    <div class="detail-content" id="detail-content"></div>
+  </div>
+</div>
+
+<!-- MOBILE BOTTOM NAV -->
+<nav class="bottom-nav" id="bottom-nav">
+  <div class="bottom-nav-inner">
+    <button class="bottom-nav-btn active" id="bn-feed" onclick="showPage('feed')">
+      <span class="bn-icon">&#x1F3E0;</span><span data-i18n="nav_feed">&#x05E4;&#x05D9;&#x05D3;</span>
+    </button>
+    <button class="bottom-nav-btn" id="bn-explore" onclick="showPage('explore')">
+      <span class="bn-icon">&#x1F5FA;&#xFE0F;</span><span data-i18n="nav_explore">&#x05D2;&#x05DC;&#x05D4;</span>
+    </button>
+    <button class="bottom-nav-btn" id="bn-saved" onclick="showPage('saved')">
+      <span class="bn-icon">&#x1F516;</span><span data-i18n="nav_saved">&#x05E9;&#x05DE;&#x05D5;&#x05E8;</span>
+    </button>
+    <button class="bottom-nav-btn" id="bn-chat" onclick="showPage('chat')">
+      <span class="bn-icon">&#x1F4AC;</span><span data-i18n="nav_chat">&#x05E6;&#x27;&#x05D0;&#x05D8;</span>
+      <span class="bn-badge">2</span>
+    </button>
+    <button class="bottom-nav-btn" id="bn-profile" onclick="showPage('profile')">
+      <span class="bn-icon">&#x1F464;</span><span data-i18n="nav_profile">&#x05E4;&#x05E8;&#x05D5;&#x05E4;&#x05D9;&#x05DC;</span>
+    </button>
+  </div>
+</nav>
+
+<!-- MOBILE FAB -->
+<button class="fab-mobile" onclick="openPostModal()">&#x2795; <span data-i18n="fab_post">&#x05E4;&#x05E8;&#x05E1;&#x05DD;</span></button>
+
+<div class="toast hidden" id="toast"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="config.js"></script>
+<script src="i18n.js"></script>
+<script src="app.js"></script>
+<script src="feed-extras.js"></script>
+<script src="settings.js"></script>
+<script src="auth.js"></script>
+<script src="backend.js"></script>
+</body>
+</html>

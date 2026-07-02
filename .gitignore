@@ -1,0 +1,6 @@
+node_modules/
+backups/
+SYNC_REPORT.md
+*.zip
+.DS_Store
+Thumbs.db

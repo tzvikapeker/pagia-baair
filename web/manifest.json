@@ -1,0 +1,16 @@
+{
+  "name": "פגיה בעיר",
+  "short_name": "פגיה בעיר",
+  "description": "שוק מוצרים לפני תפוגה וסטוק בזול",
+  "lang": "he",
+  "dir": "rtl",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0c1016",
+  "theme_color": "#0c1016",
+  "icons": [
+    { "src": "images/logo.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
