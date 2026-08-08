@@ -158,6 +158,9 @@ const I18N = {
   seller_private_label: { he:'מוכר פרטי', en:'Private seller', ru:'Частный продавец', ar:'بائع خاص' },
   mark_taken:       { he:'סמן כנלקח!', en:'Mark as taken!', ru:'Отметить как забрано!', ar:'وضع علامة: أُخذ!' },
   mark_sold:        { he:'סמן כנמכר!', en:'Mark as sold!', ru:'Отметить как продано!', ar:'وضع علامة: بيع!' },
+  // R29 — status shown ON the card, as opposed to the button label above
+  status_taken:     { he:'נלקח', en:'Taken', ru:'Забрано', ar:'أُخذ' },
+  status_sold:      { he:'נמכר', en:'Sold', ru:'Продано', ar:'بيع' },
   // toasts
   toast_saved:      { he:'נשמר ברשימה שלך', en:'Saved to your list', ru:'Сохранено в списке', ar:'حُفظ في قائمتك' },
   toast_unsaved:    { he:'הוסר מהרשימה', en:'Removed from list', ru:'Удалено из списка', ar:'أُزيل من القائمة' },
@@ -195,6 +198,16 @@ const I18N = {
   login_required:   { he:'התחבר כדי להמשיך', en:'Log in to continue', ru:'Войдите, чтобы продолжить', ar:'سجّل الدخول للمتابعة' },
   login_to_post:    { he:'התחבר כדי לפרסם', en:'Log in to post', ru:'Войдите, чтобы публиковать', ar:'سجّل الدخول للنشر' },
   login_to_chat:    { he:'התחבר כדי לשלוח הודעה', en:'Log in to chat', ru:'Войдите, чтобы писать', ar:'سجّل الدخول للمراسلة' },
+  // R30 — likes and comments are real rows now, so they need an account
+  login_to_like:    { he:'התחבר כדי לסמן לייק', en:'Log in to like', ru:'Войдите, чтобы лайкать', ar:'سجّل الدخول للإعجاب' },
+  login_to_comment: { he:'התחבר כדי להגיב', en:'Log in to comment', ru:'Войдите, чтобы комментировать', ar:'سجّل الدخول للتعليق' },
+  comment_failed:   { he:'התגובה לא נשמרה', en:'Comment was not saved', ru:'Комментарий не сохранён', ar:'لم يُحفظ التعليق' },
+  demo_mode:        { he:'מצב דמו — אין חיבור לשרת, המודעות כאן לדוגמה בלבד', en:'Demo mode — no server connection, these listings are samples', ru:'Демо-режим — нет связи с сервером, объявления примерные', ar:'وضع تجريبي — لا اتصال بالخادم، هذه إعلانات نموذجية' },
+  // R31 — feed empty states
+  empty_be_first:   { he:'עוד אין מודעות באזור. תהיה הראשון שמשתף', en:'No listings yet. Be the first to share', ru:'Пока нет объявлений. Будьте первым', ar:'لا إعلانات بعد. كن أول من يشارك' },
+  empty_post_now:   { he:'פרסם מודעה', en:'Post a listing', ru:'Разместить объявление', ar:'انشر إعلاناً' },
+  empty_no_match:   { he:'לא נמצאו מודעות שמתאימות לחיפוש', en:'No listings match your search', ru:'Ничего не найдено', ar:'لا نتائج مطابقة' },
+  empty_show_all:   { he:'הצג הכל', en:'Show all', ru:'Показать всё', ar:'عرض الكل' },
   login_fill:       { he:'מלא את כל השדות', en:'Fill all fields', ru:'Заполните все поля', ar:'املأ كل الحقول' },
   login_check_email:{ he:'שלחנו לך מייל לאישור', en:'Check your email to confirm', ru:'Проверьте почту для подтверждения', ar:'تحقق من بريدك للتأكيد' },
   delete_confirm:   { he:'למחוק את הפוסט?', en:'Delete this post?', ru:'Удалить пост?', ar:'حذف المنشور؟' },

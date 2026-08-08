@@ -1,6 +1,11 @@
-# Static site — no build step. Publishes the project root as-is.
+# Static site — no build step.
+# Publishes web/ — the curated browser-only bundle produced by make-web.ps1.
+# (Previously "." , which served the whole repo: docs, .bat/.ps1 scripts,
+#  supabase-schema.sql and package.json were all publicly reachable.)
+# Note: netlify.toml is deliberately NOT copied into web/, so the manual
+# "drag web/ to Netlify Drop" path still treats the dropped folder as the root.
 [build]
-  publish = "."
+  publish = "web"
   command = "echo no-build"
 
 # node_modules is Electron-only and not needed for the web app.

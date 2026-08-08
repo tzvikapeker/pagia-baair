@@ -7,7 +7,8 @@
 // If config.js is not filled in (or no network) → silent local demo mode.
 // =====================================================================
 
-const BACKEND = { client: null, ready: false };
+const BACKEND = { client: null, ready: false, pageSize: 30, loaded: 0, exhausted: false, realCount: { pagia: 0, stock: 0 } };
+window.BACKEND = BACKEND;
 const CLIENT_ID = (() => {
   try {
     let v = localStorage.getItem('pagia_client_id');
@@ -55,14 +56,17 @@ function rowToPost(r) {
     image: r.media_url || null, mediaType: r.media_type || 'image',
     desc: r.description || r.product, location: r.location || '',
     tags: Array.isArray(r.tags) ? r.tags : [],
+    taken: !!r.taken,
     likes: 0, liked: false, saved: false,
     time: new Date(r.created_at).toLocaleString('he-IL', { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' }),
     comments: [], showComments: false,
   };
   if (r.feed_type === 'stock') {
+    // Numeric fields are coerced here (not at render time) so nothing that ends
+    // up interpolated into HTML can arrive as a string from the DB.
     return Object.assign(base, {
       originalPrice: Number(r.original_price) || 0, salePrice: Number(r.sale_price) || 0,
-      quantity: r.quantity || 1, discountPct: r.discount_pct || 0, free: false,
+      quantity: Number(r.quantity) || 1, discountPct: Number(r.discount_pct) || 0, free: false,
     });
   }
   return Object.assign(base, {
@@ -139,17 +143,50 @@ publishPost = function () {
   else if (stockPosts.length > beforeS) backendPublish(stockPosts[0]);
 };
 
+// R30: demo mode used to be announced only in the console, so when the backend
+// was unreachable the app looked completely normal — full of demo listings that
+// a visitor would take for real ones. Now it says so on screen.
+function showDemoBanner(reason) {
+  if (document.getElementById('demo-banner')) return;
+  const bar = document.createElement('div');
+  bar.id = 'demo-banner';
+  bar.className = 'demo-banner';
+  const label = document.createElement('span');
+  label.textContent = (typeof t === 'function' ? t('demo_mode') : 'מצב דמו — אין חיבור לשרת');
+  const why = document.createElement('span');
+  why.className = 'demo-banner-why';
+  why.textContent = reason || '';
+  const close = document.createElement('button');
+  close.className = 'demo-banner-close';
+  close.setAttribute('aria-label', 'סגור');
+  close.textContent = '✕';
+  close.onclick = () => bar.remove();
+  bar.appendChild(label);
+  if (reason) bar.appendChild(why);
+  bar.appendChild(close);
+  document.body.appendChild(bar);
+}
+
 async function backendInit() {
-  if (!backendConfigured()) { console.log('[backend] not configured — running in local demo mode'); return; }
-  if (typeof supabase === 'undefined') { console.warn('[backend] supabase-js failed to load (offline?) — demo mode'); return; }
+  if (!backendConfigured()) { console.log('[backend] not configured — running in local demo mode'); showDemoBanner('config.js'); return; }
+  if (typeof supabase === 'undefined') { console.warn('[backend] supabase-js failed to load (offline?) — demo mode'); showDemoBanner('supabase-js'); return; }
   try {
-    BACKEND.client = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    // Reuse auth.js's client instead of creating a second one. Two clients
+    // sharing the same auth storage key made supabase-js warn about "Multiple
+    // GoTrueClient instances", and meant the two could disagree about the
+    // session — inserts here would then fail the owner-only RLS checks.
+    // auth.js loads first and assigns AUTH.client synchronously, so it's ready.
+    BACKEND.client = (typeof AUTH !== 'undefined' && AUTH.client)
+      ? AUTH.client
+      : supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
     const { data, error } = await BACKEND.client
       .from('posts').select('*')
       .order('created_at', { ascending: false })
-      .limit(100);
-    if (error) { console.error('[backend] load failed:', error.message); return; }
+      .range(0, BACKEND.pageSize - 1);
+    if (error) { console.error('[backend] load failed:', error.message); showDemoBanner(error.message); return; }
     BACKEND.ready = true;
+    BACKEND.loaded = data.length;
+    BACKEND.exhausted = data.length < BACKEND.pageSize;
     console.log(`[backend] connected — ${data.length} posts loaded from DB`);
 
     // Real posts go on top of the demo posts
@@ -157,7 +194,11 @@ async function backendInit() {
     const stk = data.filter(r => r.feed_type === 'stock').map(rowToPost);
     pagiaPosts.unshift(...pag);
     stockPosts.unshift(...stk);
+    BACKEND.realCount.pagia = pag.length;
+    BACKEND.realCount.stock = stk.length;
     renderFeed(); renderExpirySoon(); renderDealsWidget();
+    try { updateProfileStats(); } catch (e) {}
+    backendHydrateSocial(pag.concat(stk)).then(() => renderFeed());
 
     // Live updates: new posts from OTHER users appear instantly.
     // Notification fires ONLY if the post location matches the user's
@@ -168,6 +209,8 @@ async function backendInit() {
         if (payload.new.client_id === CLIENT_ID) return; // our own echo
         const p = rowToPost(payload.new);
         (p.feedType === 'stock' ? stockPosts : pagiaPosts).unshift(p);
+        BACKEND.realCount[p.feedType === 'stock' ? 'stock' : 'pagia']++;
+        BACKEND.loaded++;
         const feedPage = document.getElementById('page-feed');
         if (feedPage && feedPage.classList.contains('active') && currentFeedType === p.feedType) renderFeed();
         renderExpirySoon(); renderDealsWidget();
@@ -197,10 +240,19 @@ async function backendInit() {
           cv = { id: 'r' + m.room, room: m.room,
             user: { id: 'db-' + m.client_id, name: m.sender_name || 'משתמש', avatar: m.sender_avatar || ('https://api.dicebear.com/7.x/avataaars/svg?seed=' + encodeURIComponent(m.sender_name || 'u')), isBusiness: false },
             online: true, unread: 0, preview: '', time: 'עכשיו', messages: [] };
+          // The room is "<postId>:<buyer>", so the seller's side can show which
+          // product this thread is about instead of a nameless conversation.
+          cv.buyerKey = m.buyer_key || String(m.room).split(':')[1] || null;
+          cv.sellerUid = m.seller_uid || null;
+          const postDbId = String(m.room).split(':')[0];
+          const src = pagiaPosts.concat(stockPosts).find(p => String(p.dbId) === postDbId);
+          if (src) cv.post = { id: src.id, feedType: src.feedType, product: src.product, emoji: src.emoji,
+            image: src.image, mediaType: src.mediaType,
+            price: src.feedType === 'stock' ? ('₪' + src.salePrice) : (src.free ? t('price_free') : ('₪' + src.price)) };
           CONVERSATIONS.unshift(cv);
         }
         cv.messages.push({ from: 'them', text: m.text || '', media: m.media_url || null, mediaType: m.media_type || 'image', time });
-        cv.preview = m.media_url ? (m.media_type === 'video' ? '🎥' : '📷') : m.text; cv.time = 'עכשיו';
+        cv.preview = m.media_url ? (m.media_type === 'video' ? '🎥' : '📷') : (m.text || ''); cv.time = 'עכשיו';
         if (activeConvoId === cv.id) {
           const el = document.getElementById('cm-' + cv.id);
           if (el) { el.innerHTML = buildMessages(cv); scrollToBottom('cm-' + cv.id); }
@@ -211,9 +263,37 @@ async function backendInit() {
         renderChatList();
         showToast('💬 ' + t('toast_new_msg', { x: m.sender_name || '' }));
         try {
-          NOTIFICATIONS.unshift({ id: Date.now(), type: 'chat', user: cv.user, text: m.text.slice(0, 60), time: 'עכשיו', unread: true, postId: null });
+          // Media-only messages have no text — without the fallback this threw
+          // and the notification was silently swallowed by the catch below.
+          const preview = m.text ? m.text.slice(0, 60) : (m.media_type === 'video' ? '🎥' : '📷');
+          NOTIFICATIONS.unshift({ id: Date.now(), type: 'chat', user: cv.user, text: preview, time: 'עכשיו', unread: true, postId: null });
           updateNotifBadge();
         } catch (e) {}
+      })
+      .subscribe();
+
+    // ---- R30: live likes + comments from other people ----
+    const findByDbId = id => pagiaPosts.concat(stockPosts).find(p => String(p.dbId) === String(id));
+    BACKEND.client
+      .channel('social-live')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'post_likes' }, payload => {
+        const row = payload.new && payload.new.post_id ? payload.new : payload.old;
+        if (!row) return;
+        const p = findByDbId(row.post_id); if (!p) return;
+        if (row.user_id === ME.uid) return;           // our own action, already painted
+        p.likes = Math.max(0, (Number(p.likes) || 0) + (payload.eventType === 'DELETE' ? -1 : 1));
+        if (typeof paintLike === 'function') paintLike(p);
+      })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'post_comments' }, payload => {
+        const row = payload.new; if (!row) return;
+        const p = findByDbId(row.post_id); if (!p) return;
+        if (row.user_id === ME.uid) return;
+        p.comments.push(commentRow(row));
+        if (p.showComments && typeof refreshCommentUI === 'function') refreshCommentUI(p, p.feedType);
+        else {
+          const btn = document.querySelector(`#post-${p.id} .card-footer .action-btn:nth-child(2)`);
+          if (btn) btn.textContent = `💬 ${p.comments.length}`;
+        }
       })
       .subscribe();
 
@@ -256,8 +336,116 @@ async function backendInit() {
       .subscribe();
   } catch (e) {
     console.error('[backend] init error:', e.message || e);
+    showDemoBanner(e.message || String(e));
   }
 }
+
+// =====================================================================
+// R30 — LIKES & COMMENTS (real, shared, persisted)
+// Both used to live only in memory: a refresh wiped them and nobody else
+// ever saw them. Needs the R30 block in supabase-schema.sql.
+// =====================================================================
+
+// Pull likes + comments for the posts currently loaded, and merge them in.
+async function backendHydrateSocial(posts) {
+  const real = posts.filter(p => p.dbId);
+  if (!BACKEND.ready || !real.length) return;
+  const ids = real.map(p => p.dbId);
+  const byId = new Map(real.map(p => [String(p.dbId), p]));
+  try {
+    const [likes, comments] = await Promise.all([
+      BACKEND.client.from('post_likes').select('post_id,user_id').in('post_id', ids),
+      BACKEND.client.from('post_comments').select('*').in('post_id', ids).order('created_at', { ascending: true }),
+    ]);
+    if (likes.error) { console.warn('[backend] likes unavailable (run the R30 schema block):', likes.error.message); }
+    else {
+      real.forEach(p => { p.likes = 0; p.liked = false; });
+      likes.data.forEach(row => {
+        const p = byId.get(String(row.post_id)); if (!p) return;
+        p.likes++;
+        if (ME.uid && row.user_id === ME.uid) p.liked = true;
+      });
+    }
+    if (comments.error) { console.warn('[backend] comments unavailable (run the R30 schema block):', comments.error.message); }
+    else {
+      real.forEach(p => { p.comments = []; });
+      comments.data.forEach(row => {
+        const p = byId.get(String(row.post_id)); if (!p) return;
+        p.comments.push(commentRow(row));
+      });
+    }
+  } catch (e) { console.warn('[backend] social hydrate failed:', e.message || e); }
+}
+
+function commentRow(row) {
+  return {
+    dbId: row.id,
+    user: {
+      id: row.user_id ? 'db-' + row.user_id : 'db-anon',
+      name: row.author_name || 'משתמש',
+      avatar: row.author_avatar || ('https://api.dicebear.com/7.x/avataaars/svg?seed=' + encodeURIComponent(row.author_name || 'u')),
+    },
+    text: row.text || '',
+    time: new Date(row.created_at).toLocaleString('he-IL', { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' }),
+  };
+}
+
+// A like is one row keyed (post, user) — the composite primary key is what
+// makes double-liking impossible even across devices.
+window.backendToggleLike = function (post, nowLiked) {
+  if (!BACKEND.ready || !post.dbId) return Promise.resolve(true);
+  if (!ME.uid) { requireLogin('login_to_like'); return Promise.resolve(false); }
+  const q = nowLiked
+    ? BACKEND.client.from('post_likes').insert({ post_id: post.dbId, user_id: ME.uid })
+    : BACKEND.client.from('post_likes').delete().eq('post_id', post.dbId).eq('user_id', ME.uid);
+  return q.then(({ error }) => {
+    if (error) { console.warn('[backend] like failed:', error.message); return false; }
+    return true;
+  });
+};
+
+window.backendAddComment = function (post, text) {
+  if (!BACKEND.ready || !post.dbId) return Promise.resolve(null);
+  if (!ME.uid) { requireLogin('login_to_comment'); return Promise.resolve(null); }
+  return BACKEND.client.from('post_comments')
+    .insert({ post_id: post.dbId, user_id: ME.uid, author_name: ME.name, author_avatar: ME.avatar, text })
+    .select('*').single()
+    .then(({ data, error }) => {
+      if (error) { console.warn('[backend] comment failed:', error.message); return null; }
+      return commentRow(data);
+    });
+};
+
+// ---- Feed pagination: the next page of REAL posts ----
+// New posts are spliced in right after the real ones already on screen, so the
+// bundled demo content stays at the bottom instead of getting interleaved.
+window.backendLoadMore = async function () {
+  if (!BACKEND.ready || BACKEND.exhausted || BACKEND.loadingMore) return;
+  BACKEND.loadingMore = true;
+  try {
+    const from = BACKEND.loaded, to = from + BACKEND.pageSize - 1;
+    const { data, error } = await BACKEND.client
+      .from('posts').select('*')
+      .order('created_at', { ascending: false })
+      .range(from, to);
+    if (error) { console.warn('[backend] page load failed:', error.message); return; }
+    if (!data.length) { BACKEND.exhausted = true; return; }
+    BACKEND.loaded += data.length;
+    if (data.length < BACKEND.pageSize) BACKEND.exhausted = true;
+
+    const pag = data.filter(r => r.feed_type === 'pagia').map(rowToPost);
+    const stk = data.filter(r => r.feed_type === 'stock').map(rowToPost);
+    pagiaPosts.splice(BACKEND.realCount.pagia, 0, ...pag);
+    stockPosts.splice(BACKEND.realCount.stock, 0, ...stk);
+    BACKEND.realCount.pagia += pag.length;
+    BACKEND.realCount.stock += stk.length;
+    renderFeed();
+    backendHydrateSocial(pag.concat(stk)).then(() => renderFeed());
+    console.log(`[backend] +${data.length} posts (total ${BACKEND.loaded})${BACKEND.exhausted ? ' — end of feed' : ''}`);
+  } finally {
+    BACKEND.loadingMore = false;
+  }
+};
 
 // ---- CHAT: load room history from DB ----
 async function backendLoadChat(cv) {
@@ -277,7 +465,8 @@ async function backendLoadChat(cv) {
         mediaType: m.media_type || 'image',
         time: new Date(m.created_at).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' }),
       }));
-      cv.preview = data[data.length - 1].text;
+      const last = data[data.length - 1];
+      cv.preview = last.text || (last.media_url ? (last.media_type === 'video' ? '🎥' : '📷') : '');
     }
     if (activeConvoId === cv.id) {
       const el = document.getElementById('cm-' + cv.id);
@@ -287,16 +476,38 @@ async function backendLoadChat(cv) {
   } catch (e) { console.error('[backend] chat load error:', e.message || e); }
 }
 
-// Chat from a REAL (DB) post → bind the conversation to a DB room
+// Who am I, for the purpose of addressing a chat room? The account id when
+// logged in (stable across your devices), the browser id otherwise.
+function chatIdentity() {
+  return (typeof ME !== 'undefined' && ME.uid) ? ME.uid : CLIENT_ID;
+}
+
+// Chat from a REAL (DB) post → bind the conversation to a DB room.
+// R29: the room used to be the post id alone, so EVERY buyer interested in the
+// same product shared one room and read each other's private messages. The room
+// is now post + buyer, which makes each thread a real 1:1 conversation; the
+// seller simply receives one room per interested buyer.
 const _origOpenChatFromPost = openChatFromPost;
 openChatFromPost = function (id, ft) {
   _origOpenChatFromPost(id, ft);
   if (!BACKEND.ready) return;
   const post = getPost(id, ft);
   if (!post || !post.dbId) return; // demo post → local simulated chat
-  const cv = CONVERSATIONS.find(c => c.user.id === post.user.id);
-  if (cv && !cv.room) { cv.room = post.dbId; backendLoadChat(cv); }
+  const cv = CONVERSATIONS.find(c => c.user.id === post.user.id && (!c.post || c.post.id === post.id));
+  if (cv && !cv.room) {
+    cv.room = post.dbId + ':' + chatIdentity();
+    cv.buyerKey = chatIdentity();
+    cv.sellerUid = post.ownerUid || null;   // R30: needed by the participants policy
+    backendLoadChat(cv);
+  }
 };
+
+// Every insert must carry both participants, otherwise the R30 policy rejects
+// it. Derived from the room for the buyer, and from the message for the seller.
+function chatParticipants(cv) {
+  const buyerKey = cv.buyerKey || String(cv.room || '').split(':')[1] || null;
+  return { buyer_key: buyerKey, seller_uid: cv.sellerUid || null };
+}
 
 // Sending: DB rooms → insert to DB (no fake auto-reply); demo → original behavior
 const _origSendChat = sendChatMessage;
@@ -313,7 +524,7 @@ sendChatMessage = function (id) {
   if (msgs) { msgs.innerHTML = buildMessages(cv); scrollToBottom('cm-' + id); }
   renderChatList();
   BACKEND.client.from('chat_messages')
-    .insert({ room: cv.room, client_id: CLIENT_ID, user_id: (ME.uid || null), sender_name: ME.name, sender_avatar: ME.avatar, text })
+    .insert(Object.assign({ room: cv.room, client_id: CLIENT_ID, user_id: (ME.uid || null), sender_name: ME.name, sender_avatar: ME.avatar, text }, chatParticipants(cv)))
     .then(({ error }) => { if (error) console.error('[backend] chat send failed:', error.message); });
 };
 
@@ -328,7 +539,7 @@ deliverChatMedia = function (cv, src, type) {
       if (src.startsWith('data:')) url = await backendUploadMedia(src, type);
       if (!url) { showToast('⚠️ ' + t('media_too_big')); return; }
       const { error } = await BACKEND.client.from('chat_messages')
-        .insert({ room: cv.room, client_id: CLIENT_ID, user_id: (ME.uid || null), sender_name: ME.name, sender_avatar: ME.avatar, text: '', media_url: url, media_type: type });
+        .insert(Object.assign({ room: cv.room, client_id: CLIENT_ID, user_id: (ME.uid || null), sender_name: ME.name, sender_avatar: ME.avatar, text: '', media_url: url, media_type: type }, chatParticipants(cv)));
       if (error) console.error('[backend] chat media failed:', error.message);
     } catch (e) { console.error('[backend] chat media error:', e.message || e); }
   })();
@@ -368,6 +579,16 @@ deletePost = function (id, ft) {
     try { closeDetailModal(); } catch (e) {}
     renderFeed(); renderExpirySoon(); renderDealsWidget();
     showToast('🗑️ ' + t('post_deleted'));
+  });
+};
+
+// R29: persist "taken/sold". Owner-only by RLS. Needs the `taken` column —
+// run the R29 block in supabase-schema.sql once. Without it the update errors
+// and the state stays local to this browser.
+window.backendMarkTaken = function (p) {
+  if (!BACKEND.ready || !p.dbId) return;
+  BACKEND.client.from('posts').update({ taken: true }).eq('id', p.dbId).then(({ error }) => {
+    if (error) console.warn('[backend] markTaken failed (did you run the R29 schema block?):', error.message);
   });
 };
 

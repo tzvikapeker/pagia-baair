@@ -1,4 +1,4 @@
-# checkpoint.ps1 — One-click project backup
+﻿# checkpoint.ps1 — One-click project backup
 # Usage:  cd C:\dev\pagia-baair ; .\checkpoint.ps1
 # Creates: backups\pagia-baair_YYYY-MM-DD_HHmm.zip  (excludes node_modules & backups)
 

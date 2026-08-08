@@ -18,25 +18,76 @@ const IMG = {
   drinks:     'images/drinks.svg',
 };
 
+// =====================
+// HTML SAFETY (R28)
+// =====================
+// Every render path below builds HTML strings and assigns them with innerHTML.
+// Anything that came from another user (post text, names, chat messages, media
+// URLs) MUST go through esc() / safeUrl() first — otherwise a post titled
+// `<img src=x onerror=...>` runs in every viewer's browser (stored XSS).
+function esc(v) {
+  return String(v == null ? '' : v)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+window.esc = esc;
+
+// For src/href attributes: keeps https/relative/blob and inline media, drops
+// javascript:, vbscript:, file: and data: payloads that aren't image/video.
+function safeUrl(u) {
+  const s = String(u == null ? '' : u).trim();
+  if (!s) return '';
+  if (/^(javascript|vbscript|file):/i.test(s)) return '';
+  if (/^data:/i.test(s) && !/^data:(image|video)\//i.test(s)) return '';
+  return esc(s);
+}
+window.safeUrl = safeUrl;
+
 // Graceful fallback: if an <img> fails to load, swap it for the emoji placeholder.
+// The emoji is read from data-emoji so it never has to be inlined into the
+// onerror="" JS string (which would be an injection point of its own).
 function imgFallback(el, emoji) {
   const d = document.createElement('div');
   d.className = el.classList.contains('detail-image') ? 'detail-image-placeholder' : 'card-image-placeholder';
-  d.textContent = emoji || '📦';
+  d.textContent = emoji || el.getAttribute('data-emoji') || '📦';
   el.replaceWith(d);
 }
 window.imgFallback = imgFallback;
+
+// Avatars are fetched from an external service (dicebear). When it's blocked,
+// rate-limited or the user is offline, every avatar in the app became a broken
+// image icon. One capture-phase listener covers every avatar that exists now or
+// gets rendered later, and swaps in an initial — without replacing the <img>
+// element, which other code (applyIdentity) still looks up and updates.
+document.addEventListener('error', e => {
+  const el = e.target;
+  if (!(el instanceof HTMLImageElement) || el.dataset.avatarFallback) return;
+  const isAvatar = /dicebear|avatar/i.test(el.getAttribute('src') || '') ||
+    !!el.closest('.card-avatar, .comment-avatar, .chat-convo-avatar, .chat-msg-avatar, .detail-user, .notif-avatar, .nav-avatar, .chat-window-header');
+  if (!isAvatar) return;
+  el.dataset.avatarFallback = '1';
+  const initial = ((el.getAttribute('alt') || '').trim()[0] || '?').toUpperCase();
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">' +
+    '<rect width="64" height="64" rx="32" fill="#2a313a"/>' +
+    '<text x="32" y="42" font-size="28" text-anchor="middle" fill="#9aa4b2" font-family="sans-serif">' +
+    initial.replace(/[<>&"]/g, '') + '</text></svg>';
+  el.src = 'data:image/svg+xml;utf8,' + encodeURIComponent(svg);
+}, true);
 
 // Renders product media: <video> for uploaded videos, <img> otherwise, or emoji placeholder.
 function mediaTag(post, ft, opts) {
   opts = opts || {};
   const cls = opts.detail ? 'detail-image' : 'card-image';
   const phCls = opts.detail ? 'detail-image-placeholder' : 'card-image-placeholder';
-  if (!post.image) return `<div class="${phCls}">${post.emoji}</div>`;
+  const src = safeUrl(post.image);
+  if (!src) return `<div class="${phCls}">${esc(post.emoji)}</div>`;
   if (post.mediaType === 'video')
-    return `<video class="${cls}" src="${post.image}" controls playsinline preload="metadata"${opts.detail ? '' : ' onclick="event.stopPropagation()"'}></video>`;
-  const click = opts.detail ? '' : ` onclick="openDetail(${post.id},'${ft}')"`;
-  return `<img class="${cls}" src="${post.image}" alt="${post.product}"${click} loading="lazy" onerror="imgFallback(this,'${post.emoji}')"/>`;
+    return `<video class="${cls}" src="${src}" controls playsinline preload="metadata"${opts.detail ? '' : ' onclick="event.stopPropagation()"'}></video>`;
+  const click = opts.detail ? '' : ` onclick="openDetail(${Number(post.id)},'${ft === 'stock' ? 'stock' : 'pagia'}')"`;
+  return `<img class="${cls}" src="${src}" alt="${esc(post.product)}"${click} loading="lazy" data-emoji="${esc(post.emoji)}" onerror="imgFallback(this)"/>`;
 }
 window.mediaTag = mediaTag;
 
@@ -149,17 +200,29 @@ function switchFeed(type, btn) {
 function renderFeed(searchQuery, filterFn) {
   const grid = document.getElementById('feed-grid');
   grid.innerHTML = '';
-  let posts = currentFeedType === 'pagia' ? pagiaPosts : stockPosts;
+  let posts = liveFiltered(currentFeedType === 'pagia' ? pagiaPosts : stockPosts);
   if (searchQuery) {
-    posts = [...pagiaPosts, ...stockPosts].filter(p =>
-      p.product.includes(searchQuery) || p.desc.toLowerCase().includes(searchQuery) ||
-      p.location.includes(searchQuery) || p.tags.some(t => t.includes(searchQuery)) ||
-      p.user.name.includes(searchQuery) || (p.user.bizName||'').includes(searchQuery)
+    // The query arrives lower-cased, so every field has to be lower-cased too —
+    // previously only `desc` was, which meant any capitalised product name,
+    // city or seller was unsearchable.
+    const q = String(searchQuery).toLowerCase();
+    const has = v => String(v == null ? '' : v).toLowerCase().includes(q);
+    posts = [...liveFiltered(pagiaPosts), ...liveFiltered(stockPosts)].filter(p =>
+      has(p.product) || has(p.desc) || has(p.location) || has(p.category) ||
+      (p.tags || []).some(has) || has(p.user.name) || has(p.user.bizName)
     );
   } else if (filterFn) {
     posts = posts.filter(filterFn);
   }
-  if (!posts.length) { grid.innerHTML = '<div style="text-align:center;color:var(--text-secondary);padding:60px 0;font-size:1.1rem;">\uD83D\uDE05 \u05D0\u05D9\u05DF \u05DE\u05D5\u05E6\u05E8\u05D9\u05DD</div>'; return; }
+  if (!posts.length) {
+    // Distinguish "nothing matched your search/filter" from "nobody has posted
+    // yet" \u2014 the second one is an invitation, not a dead end.
+    const filtering = !!(searchQuery || filterFn);
+    grid.innerHTML = filtering
+      ? `<div class="empty-state"><span>\uD83D\uDD0D</span><p>${t('empty_no_match')}</p><button class="btn-primary" onclick="renderFeed()">${t('empty_show_all')}</button></div>`
+      : `<div class="empty-state"><span>\uD83C\uDF31</span><p>${t('empty_be_first')}</p><button class="btn-primary" onclick="openPostModal()">${t('empty_post_now')}</button></div>`;
+    return;
+  }
   posts.forEach(p => grid.insertAdjacentHTML('beforeend', p.feedType === 'stock' ? buildStockCard(p) : buildPagiaCard(p)));
 }
 
@@ -167,31 +230,45 @@ function getPost(id, ft) {
   return ft === 'stock' ? stockPosts.find(p=>p.id===id) : pagiaPosts.find(p=>p.id===id);
 }
 
+// R31 — bundled demo listings.
+// They exist so the app is alive with no backend. Once a real backend IS
+// connected they are hidden: a marketplace must not show invented products
+// next to genuine ones, and a visitor has no way to tell them apart.
+// Set this to true if you want them on screen for a presentation.
+const SHOW_DEMO_WHEN_LIVE = false;
+function liveFiltered(arr) {
+  if (SHOW_DEMO_WHEN_LIVE) return arr;
+  if (!(window.BACKEND && BACKEND.ready)) return arr;   // offline → demo is all we have
+  return arr.filter(p => p.dbId);
+}
+window.liveFiltered = liveFiltered;
+
 function buildPagiaCard(post) {
   const dl = Math.ceil((post.expiry - today)/(864e5));
   const urg = dl<=1 ? 'urgent':'';
   const exp = dl===0?('\u26A1 '+t('expiry_today')):dl===1?('\u23F0 '+t('expiry_tomorrow')):('\uD83D\uDCC5 '+t('expiry_days',{n:dl}));
   const pr  = post.free?('\uD83C\uDD93 '+t('price_free')):`\u20AA${post.price}`;
   const img = mediaTag(post, 'pagia');
-  return `<article class="product-card" id="post-${post.id}">
+  return `<article class="product-card${post.taken ? ' is-taken' : ''}" id="post-${post.id}">
+    ${post.taken ? `<div class="taken-ribbon">${t('status_taken')}</div>` : ''}
     <div class="card-header">
-      <div class="card-avatar"><img src="${post.user.avatar}" alt="${post.user.name}"/></div>
-      <div class="card-user-info"><div class="card-user-name">${post.user.name}</div><div class="card-meta">${post.location} \u00B7 ${post.time}</div></div>
+      <div class="card-avatar"><img src="${safeUrl(post.user.avatar)}" alt="${esc(post.user.name)}"/></div>
+      <div class="card-user-info"><div class="card-user-name">${esc(post.user.name)}</div><div class="card-meta">${esc(post.location)} \u00B7 ${esc(post.time)}</div></div>
     </div>${img}
     <div class="card-body">
-      <div class="card-title">${post.product}</div>
-      <p class="card-desc">${post.desc}</p>
+      <div class="card-title">${esc(post.product)}</div>
+      <p class="card-desc">${esc(post.desc)}</p>
       <div class="card-badges">
         <span class="badge badge-expiry ${urg}">${exp}</span>
         <span class="badge badge-price">${pr}</span>
-        <span class="badge badge-cat">${post.category}</span>
+        <span class="badge badge-cat">${esc(post.category)}</span>
       </div>
     </div>
     <div class="card-footer">
       <button class="action-btn${post.liked?' liked':''}" onclick="toggleLike(${post.id},'pagia')">${post.liked?'\u2764\uFE0F':'\uD83E\uDD0D'} <span id="lc-${post.id}">${post.likes}</span></button>
       <button class="action-btn" onclick="toggleComments(${post.id},'pagia')">\uD83D\uDCAC ${post.comments.length}</button>
       <button class="action-btn chat-action" onclick="openChatFromPost(${post.id},'pagia')">\u2709\uFE0F ${t('btn_chat')}</button>
-      <button class="action-btn save-action" onclick="toggleSave(${post.id},'pagia')">${savedIds.pagia.has(post.id)?'\uD83D\uDD16':'\uD83C\uDFF7\uFE0F'} ${t('btn_save')}</button>
+      <button class="action-btn save-action" onclick="toggleSave(${post.id},'pagia')">${isSaved(post,'pagia')?'\uD83D\uDD16':'\uD83C\uDFF7\uFE0F'} ${t('btn_save')}</button>
     </div>
     <div class="comments-section" id="comments-${post.id}" style="display:none">${buildComments(post,'pagia')}</div>
   </article>`;
@@ -199,45 +276,46 @@ function buildPagiaCard(post) {
 
 function buildStockCard(post) {
   const biz = post.user.isBusiness;
-  const sellerBadge = biz?`<span class="biz-badge">\uD83C\uDFE2 ${post.user.bizName}</span>`:`<span class="private-seller-badge">\uD83D\uDC64 ${t('badge_private')}</span>`;
+  const sellerBadge = biz?`<span class="biz-badge">\uD83C\uDFE2 ${esc(post.user.bizName)}</span>`:`<span class="private-seller-badge">\uD83D\uDC64 ${t('badge_private')}</span>`;
   const discBanner = post.discountPct>0?`<div class="discount-banner">-${post.discountPct}%</div>`:'';
   const img = `<div class="card-image-wrap" style="position:relative">${discBanner}${mediaTag(post,'stock')}</div>`;
   const priceHtml = post.originalPrice>0
     ?`<div class="price-compare"><span class="price-original">\u20AA${post.originalPrice}</span><span class="price-sale">\u20AA${post.salePrice}</span><span class="price-savings">${t('savings',{n:post.originalPrice-post.salePrice})}</span></div>`
     :`<div class="price-compare"><span class="price-sale">\u20AA${post.salePrice}</span></div>`;
-  return `<article class="product-card" id="post-${post.id}" style="border-top:2px solid rgba(255,169,77,0.25)">
+  return `<article class="product-card${post.taken ? ' is-taken' : ''}" id="post-${post.id}" style="border-top:2px solid rgba(255,169,77,0.25)">
+    ${post.taken ? `<div class="taken-ribbon">${t('status_sold')}</div>` : ''}
     <div class="card-header">
-      <div class="card-avatar"><img src="${post.user.avatar}" alt="${post.user.name}"/></div>
+      <div class="card-avatar"><img src="${safeUrl(post.user.avatar)}" alt="${esc(post.user.name)}"/></div>
       <div class="card-user-info">
-        <div class="card-user-name" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">${biz?post.user.bizName:post.user.name}${sellerBadge}</div>
-        <div class="card-meta">${post.location} \u00B7 ${post.time}</div>
+        <div class="card-user-name" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">${esc(biz?post.user.bizName:post.user.name)}${sellerBadge}</div>
+        <div class="card-meta">${esc(post.location)} \u00B7 ${esc(post.time)}</div>
       </div>
     </div>${img}
     <div class="card-body">
-      <div class="stock-feed-label">\uD83C\uDFF7\uFE0F ${t('stock_label')} \u00B7 ${post.category}</div>
-      <div class="card-title">${post.product}</div>
-      <p class="card-desc">${post.desc}</p>
+      <div class="stock-feed-label">\uD83C\uDFF7\uFE0F ${t('stock_label')} \u00B7 ${esc(post.category)}</div>
+      <div class="card-title">${esc(post.product)}</div>
+      <p class="card-desc">${esc(post.desc)}</p>
       ${priceHtml}
       <div class="card-badges">
-        <span class="badge badge-location">\uD83D\uDCCD ${post.location}</span>
+        <span class="badge badge-location">\uD83D\uDCCD ${esc(post.location)}</span>
         <span class="badge qty-badge">\uD83D\uDCE6 ${t('units',{n:post.quantity})}</span>
-        ${post.tags.slice(0,2).map(t=>`<span class="badge badge-cat">${t}</span>`).join('')}
+        ${post.tags.slice(0,2).map(tag=>`<span class="badge badge-cat">${esc(tag)}</span>`).join('')}
       </div>
     </div>
     <div class="card-footer">
       <button class="action-btn${post.liked?' liked':''}" onclick="toggleLike(${post.id},'stock')">${post.liked?'\u2764\uFE0F':'\uD83E\uDD0D'} <span id="lc-${post.id}">${post.likes}</span></button>
       <button class="action-btn" onclick="toggleComments(${post.id},'stock')">\uD83D\uDCAC ${post.comments.length}</button>
       <button class="action-btn" style="color:var(--accent3)" onclick="openChatFromPost(${post.id},'stock')">\u2709\uFE0F ${t('btn_chat_seller')}</button>
-      <button class="action-btn save-action" onclick="toggleSave(${post.id},'stock')">${savedIds.stock.has(post.id)?'\uD83D\uDD16':'\uD83C\uDFF7\uFE0F'}</button>
+      <button class="action-btn save-action" onclick="toggleSave(${post.id},'stock')">${isSaved(post,'stock')?'\uD83D\uDD16':'\uD83C\uDFF7\uFE0F'}</button>
     </div>
     <div class="comments-section" id="comments-${post.id}" style="display:none">${buildComments(post,'stock')}</div>
   </article>`;
 }
 
 function buildComments(post, ft) {
-  const items = post.comments.map(c=>`<div class="comment-item"><div class="comment-avatar"><img src="${c.user.avatar}" alt="${c.user.name}"/></div><div class="comment-bubble"><div class="comment-user">${c.user.name}</div><div class="comment-text">${c.text}</div><div class="comment-time">${c.time}</div></div></div>`).join('');
+  const items = post.comments.map(c=>`<div class="comment-item"><div class="comment-avatar"><img src="${safeUrl(c.user.avatar)}" alt="${esc(c.user.name)}"/></div><div class="comment-bubble"><div class="comment-user">${esc(c.user.name)}</div><div class="comment-text">${esc(c.text)}</div><div class="comment-time">${esc(c.time)}</div></div></div>`).join('');
   return `<div class="comment-list">${items||('<div style="color:var(--text-secondary);font-size:0.85rem;padding:8px 0">'+t('comment_first')+'</div>')}</div>
-    <div class="comment-input-row"><img src="${ME.avatar}" style="width:32px;height:32px;border-radius:50%;flex-shrink:0" alt="me"/>
+    <div class="comment-input-row"><img src="${safeUrl(ME.avatar)}" style="width:32px;height:32px;border-radius:50%;flex-shrink:0" alt="me"/>
     <input type="text" placeholder="${t('comment_ph')}" id="ci-${post.id}" onkeypress="if(event.key==='Enter')addComment(${post.id},'${ft}')"/>
     <button class="comment-send-btn" onclick="addComment(${post.id},'${ft}')">&#x27A4;</button></div>`;
 }
@@ -251,25 +329,72 @@ function toggleComments(id, ft) {
   else sec.style.display='none';
 }
 
+function refreshCommentUI(post, ft) {
+  const sec = document.getElementById('comments-' + post.id);
+  if (sec) {
+    sec.innerHTML = buildComments(post, ft);
+    const inp = sec.querySelector('input');
+    if (inp) inp.focus();
+  }
+  const btn = document.querySelector(`#post-${post.id} .card-footer .action-btn:nth-child(2)`);
+  if (btn) btn.textContent = `\uD83D\uDCAC ${post.comments.length}`;
+}
+
+// R30: comments are written to the DB. They used to be pushed into an in-memory
+// array only \u2014 gone on refresh, invisible to everyone else.
 function addComment(id, ft) {
   const post = getPost(id, ft);
   const inp  = document.getElementById('ci-'+id);
   if (!post||!inp||!inp.value.trim()) return;
-  post.comments.push({user:ME, text:inp.value.trim(), time:'\u05E2\u05DB\u05E9\u05D9\u05D5'});
-  inp.value='';
-  const sec = document.getElementById('comments-'+id);
-  sec.innerHTML=buildComments(post,ft);
-  sec.querySelector('input').focus();
-  const btn = document.querySelector(`#post-${id} .card-footer .action-btn:nth-child(2)`);
-  if (btn) btn.innerHTML=`\uD83D\uDCAC ${post.comments.length}`;
+  const text = inp.value.trim();
+  if (post.dbId && typeof isLoggedIn === 'function' && !isLoggedIn()) { requireLogin('login_to_comment'); return; }
+  inp.value = '';
+
+  // Optimistic: show it immediately, reconcile with the server row after.
+  const local = { user: ME, text, time: '\u05E2\u05DB\u05E9\u05D9\u05D5', _pending: true };
+  post.comments.push(local);
+  refreshCommentUI(post, ft);
+
+  if (post.dbId && typeof backendAddComment === 'function') {
+    backendAddComment(post, text).then(saved => {
+      const i = post.comments.indexOf(local);
+      if (i < 0) return;
+      if (saved) post.comments[i] = saved;
+      else { post.comments.splice(i, 1); showToast('\u26A0\uFE0F ' + t('comment_failed')); }
+      refreshCommentUI(post, ft);
+    });
+  }
 }
 
+function paintLike(post) {
+  const btn = document.querySelector(`#post-${post.id} .card-footer .action-btn`);
+  if (!btn) return;
+  btn.classList.toggle('liked', post.liked);
+  btn.innerHTML = `${post.liked ? '\u2764\uFE0F' : '\uD83E\uDD0D'} <span id="lc-${post.id}">${Number(post.likes) || 0}</span>`;
+}
+
+// R30: a like is now a row in the DB, so the count is real and shared. On a
+// real post it requires login; the UI updates first and rolls back if the
+// write is rejected.
 function toggleLike(id, ft) {
   const post = getPost(id, ft);
   if (!post) return;
-  post.liked=!post.liked; post.likes+=post.liked?1:-1;
+  if (post.dbId && typeof isLoggedIn === 'function' && !isLoggedIn()) { requireLogin('login_to_like'); return; }
+  const wasLiked = post.liked;
+  post.liked = !wasLiked;
+  post.likes = Math.max(0, (Number(post.likes) || 0) + (post.liked ? 1 : -1));
+  paintLike(post);
   const btn = document.querySelector(`#post-${id} .card-footer .action-btn`);
-  if (btn) { btn.classList.toggle('liked',post.liked); btn.innerHTML=`${post.liked?'\u2764\uFE0F':'\uD83E\uDD0D'} <span id="lc-${id}">${post.likes}</span>`; btn.animate([{transform:'scale(1.3)'},{transform:'scale(1)'}],{duration:200}); }
+  if (btn) btn.animate([{ transform: 'scale(1.3)' }, { transform: 'scale(1)' }], { duration: 200 });
+
+  if (post.dbId && typeof backendToggleLike === 'function') {
+    backendToggleLike(post, post.liked).then(ok => {
+      if (ok) return;
+      post.liked = wasLiked;
+      post.likes = Math.max(0, (Number(post.likes) || 0) + (wasLiked ? 1 : -1));
+      paintLike(post);
+    });
+  }
 }
 
 // Single source of truth for saves: savedIds Sets. Also mirrors post.saved
@@ -277,8 +402,11 @@ function toggleLike(id, ft) {
 function toggleSave(id, ft) {
   const set = ft === 'pagia' ? savedIds.pagia : savedIds.stock;
   const post = getPost(id, ft);
-  const nowSaved = !set.has(id);
-  if (nowSaved) set.add(id); else set.delete(id);
+  const key = postKey(post);
+  if (!key) return;
+  const nowSaved = !set.has(key);
+  if (nowSaved) set.add(key); else set.delete(key);
+  persistSaved();
   if (post) post.saved = nowSaved;
   const label = ft === 'pagia'
     ? `${nowSaved?'\uD83D\uDD16':'\uD83C\uDFF7\uFE0F'} \u05E9\u05DE\u05D5\u05E8`
@@ -295,12 +423,24 @@ function toggleSave(id, ft) {
   if (savedPage && savedPage.classList.contains('active')) renderSaved('all');
 }
 
+// "Near me" used to be hardcoded to Tel Aviv + Jerusalem, so the cities and
+// neighbourhoods you set in ⚙️ (R27) had no effect on the feed at all — they
+// only ever filtered notifications. Now it reads the same settings.
+function isNearMe(p) {
+  const s = (typeof getSettings === 'function') ? getSettings() : null;
+  const mine = s ? s.cities.concat(s.areas).map(x => (x || '').trim()).filter(Boolean) : [];
+  if (!mine.length) return true;
+  const loc = (p.location || '').trim();
+  return mine.some(n => loc.includes(n));
+}
+window.isNearMe = isNearMe;
+
 function filterPagia(el, type) {
   document.querySelectorAll('#pagia-controls .filter-tab').forEach(t=>t.classList.remove('active'));
   el.classList.add('active');
   if (type==='all')    renderFeed();
   if (type==='today')  renderFeed(null, p=>Math.ceil((p.expiry-today)/864e5)<=1);
-  if (type==='nearby') renderFeed(null, p=>p.location.includes('\u05EA\u05DC \u05D0\u05D1\u05D9\u05D1')||p.location.includes('\u05D9\u05E8\u05D5\u05E9\u05DC\u05D9\u05DD'));
+  if (type==='nearby') renderFeed(null, isNearMe);
   if (type==='free')   renderFeed(null, p=>p.free);
 }
 
@@ -352,25 +492,25 @@ function openDetail(id, ft) {
     const exp=dl<=0?('\u26A1 '+t('expiry_today')):('\uD83D\uDCC5 '+t('expiry_days',{n:dl}));
     const pr=post.free?('\uD83C\uDD93 '+t('price_free')):`\u20AA${post.price}`;
     const imgH=mediaTag(post,ft,{detail:true});
-    html=`${imgH}<div class="detail-body"><h2 class="detail-title">${post.product}</h2>
-      <div class="detail-user"><img src="${post.user.avatar}" alt="${post.user.name}"/><div><div class="detail-user-name">${post.user.name}</div><div class="detail-user-location">\uD83D\uDCCD ${post.location} \u00B7 ${post.time}</div></div></div>
-      <div class="card-badges" style="margin-bottom:16px"><span class="badge badge-expiry">${exp}</span><span class="badge badge-price">${pr}</span>${post.tags.map(t=>`<span class="badge badge-cat">${t}</span>`).join('')}</div>
-      <p class="detail-desc">${post.desc}</p>
+    html=`${imgH}<div class="detail-body"><h2 class="detail-title">${esc(post.product)}</h2>
+      <div class="detail-user"><img src="${safeUrl(post.user.avatar)}" alt="${esc(post.user.name)}"/><div><div class="detail-user-name">${esc(post.user.name)}</div><div class="detail-user-location">\uD83D\uDCCD ${esc(post.location)} \u00B7 ${esc(post.time)}</div></div></div>
+      <div class="card-badges" style="margin-bottom:16px"><span class="badge badge-expiry">${exp}</span><span class="badge badge-price">${pr}</span>${post.tags.map(tag=>`<span class="badge badge-cat">${esc(tag)}</span>`).join('')}</div>
+      <p class="detail-desc">${esc(post.desc)}</p>
       <div class="detail-actions">
         <button class="detail-chat-btn" onclick="openChatFromPost(${id},'pagia');closeDetailModal()">\uD83D\uDCAC ${t('detail_send_msg')}</button>
-        <button class="detail-save-btn" onclick="toggleSave(${id},'pagia')">${savedIds.pagia.has(id)?'\uD83D\uDD16':'\uD83C\uDFF7\uFE0F'} ${t('btn_save')}</button>
+        <button class="detail-save-btn" onclick="toggleSave(${id},'pagia')">${isSaved(post,'pagia')?'\uD83D\uDD16':'\uD83C\uDFF7\uFE0F'} ${t('btn_save')}</button>
       </div></div>`;
   } else {
     const imgH=mediaTag(post,ft,{detail:true});
     const prH=post.originalPrice>0?`<div class="price-compare" style="margin-bottom:16px"><span class="price-original">\u20AA${post.originalPrice}</span><span class="price-sale">\u20AA${post.salePrice}</span><span class="price-savings">${t('savings',{n:post.originalPrice-post.salePrice})} (${post.discountPct}%)</span></div>`:`<div class="price-compare" style="margin-bottom:16px"><span class="price-sale">\u20AA${post.salePrice}</span></div>`;
-    const sB=post.user.isBusiness?`<span class="biz-badge">\uD83C\uDFE2 ${t('seller_business_verified')} \u2013 ${post.user.bizName}</span>`:`<span class="private-seller-badge">\uD83D\uDC64 ${t('seller_private_label')}</span>`;
-    html=`${imgH}<div class="detail-body"><div style="margin-bottom:12px">${sB}</div><h2 class="detail-title">${post.product}</h2>
-      <div class="detail-user"><img src="${post.user.avatar}" alt="${post.user.name}"/><div><div class="detail-user-name">${post.user.isBusiness?post.user.bizName:post.user.name}</div><div class="detail-user-location">\uD83D\uDCCD ${post.location} \u00B7 ${post.time}</div></div></div>
-      ${prH}<div class="card-badges" style="margin-bottom:16px"><span class="badge qty-badge">\uD83D\uDCE6 ${post.quantity} \u05D9\u05D7\u05D9\u05D3\u05D5\u05EA</span>${post.tags.map(t=>`<span class="badge badge-cat">${t}</span>`).join('')}</div>
-      <p class="detail-desc">${post.desc}</p>
+    const sB=post.user.isBusiness?`<span class="biz-badge">\uD83C\uDFE2 ${t('seller_business_verified')} \u2013 ${esc(post.user.bizName)}</span>`:`<span class="private-seller-badge">\uD83D\uDC64 ${t('seller_private_label')}</span>`;
+    html=`${imgH}<div class="detail-body"><div style="margin-bottom:12px">${sB}</div><h2 class="detail-title">${esc(post.product)}</h2>
+      <div class="detail-user"><img src="${safeUrl(post.user.avatar)}" alt="${esc(post.user.name)}"/><div><div class="detail-user-name">${esc(post.user.isBusiness?post.user.bizName:post.user.name)}</div><div class="detail-user-location">\uD83D\uDCCD ${esc(post.location)} \u00B7 ${esc(post.time)}</div></div></div>
+      ${prH}<div class="card-badges" style="margin-bottom:16px"><span class="badge qty-badge">\uD83D\uDCE6 ${Number(post.quantity)||1} \u05D9\u05D7\u05D9\u05D3\u05D5\u05EA</span>${post.tags.map(tag=>`<span class="badge badge-cat">${esc(tag)}</span>`).join('')}</div>
+      <p class="detail-desc">${esc(post.desc)}</p>
       <div class="detail-actions">
-        <button class="detail-chat-btn" style="background:linear-gradient(135deg,var(--accent3),#ee5a24)" onclick="openChatFromPost(${id},'stock');closeDetailModal()">\uD83D\uDCAC ${t('detail_chat_with')} ${post.user.isBusiness?post.user.bizName:post.user.name}</button>
-        <button class="detail-save-btn" onclick="toggleSave(${id},'stock')">${savedIds.stock.has(id)?'\uD83D\uDD16':'\uD83C\uDFF7\uFE0F'}</button>
+        <button class="detail-chat-btn" style="background:linear-gradient(135deg,var(--accent3),#ee5a24)" onclick="openChatFromPost(${id},'stock');closeDetailModal()">\uD83D\uDCAC ${t('detail_chat_with')} ${esc(post.user.isBusiness?post.user.bizName:post.user.name)}</button>
+        <button class="detail-save-btn" onclick="toggleSave(${id},'stock')">${isSaved(post,'stock')?'\uD83D\uDD16':'\uD83C\uDFF7\uFE0F'}</button>
       </div></div>`;
   }
   document.getElementById('detail-content').innerHTML=html;
@@ -378,7 +518,7 @@ function openDetail(id, ft) {
   document.body.style.overflow='hidden';
   // Owner-only controls: delete + edit (real posts you own)
   const actions = document.querySelector('#detail-content .detail-actions');
-  if (actions && post.ownerUid && typeof ME !== 'undefined' && ME.uid && post.ownerUid === ME.uid) {
+  if (actions && isMine(post)) {
     const del = document.createElement('button');
     del.className = 'owner-btn danger';
     del.innerHTML = '\ud83d\uddd1\ufe0f ' + t('btn_delete');
@@ -389,13 +529,21 @@ function openDetail(id, ft) {
     ed.innerHTML = '\u270f\ufe0f ' + t('btn_edit');
     ed.onclick = () => editPost(id, ft);
     actions.appendChild(ed);
-  } else if (actions && !document.querySelector('#detail-content .mark-taken-btn')) {
-    const feedType = ft;
-    const btn = document.createElement('button');
-    btn.className = 'mark-taken-btn';
-    btn.innerHTML = feedType === 'pagia' ? ('\u2705 ' + t('mark_taken')) : ('\u2705 ' + t('mark_sold'));
-    btn.onclick = () => markTaken(id, feedType);
-    actions.appendChild(btn);
+    // Marking taken/sold is the owner's call \u2014 RLS only lets the owner update
+    // the row, so offering it to everyone (as before) could never have worked.
+    if (!post.taken) {
+      const mk = document.createElement('button');
+      mk.className = 'mark-taken-btn';
+      mk.textContent = ft === 'pagia' ? ('\u2705 ' + t('mark_taken')) : ('\u2705 ' + t('mark_sold'));
+      mk.onclick = () => markTaken(id, ft);
+      actions.appendChild(mk);
+    }
+  }
+  if (post.taken) {
+    const note = document.createElement('div');
+    note.className = 'taken-note';
+    note.textContent = ft === 'pagia' ? t('status_taken') : t('status_sold');
+    if (actions) actions.appendChild(note);
   }
 }
 
@@ -591,10 +739,10 @@ function renderChatList() {
     c.innerHTML=`<div class="chat-list-empty"><span style="font-size:2.4rem">💬</span><div class="chat-list-empty-title">${t('chat_empty_none')}</div><div class="chat-list-empty-hint">${t('chat_empty_hint')}</div><button class="btn-primary" style="margin-top:12px" onclick="showPage('feed')">${t('go_to_feed')}</button></div>`;
     return;
   }
-  c.innerHTML=CONVERSATIONS.map(cv=>`<div class="chat-convo-item ${activeConvoId===cv.id?'active':''} ${cv.unread>0?'has-unread':''}" onclick="openConversation('${cv.id}')">
-    <div class="chat-convo-avatar"><img src="${cv.user.avatar}" alt="${cv.user.name}"/>${chatStatus(cv).online?'<div class="online-dot"></div>':''}</div>
-    <div class="chat-convo-info"><div class="chat-convo-name">${cv.user.isBusiness?cv.user.bizName:cv.user.name}</div><div class="chat-convo-preview">${cv.preview}</div></div>
-    <div class="chat-convo-meta"><div class="chat-convo-time">${cv.time}</div>${cv.unread>0?`<div class="chat-unread">${cv.unread}</div>`:''}</div>
+  c.innerHTML=CONVERSATIONS.map(cv=>`<div class="chat-convo-item ${activeConvoId===cv.id?'active':''} ${cv.unread>0?'has-unread':''}" onclick="openConversation('${esc(cv.id)}')">
+    <div class="chat-convo-avatar"><img src="${safeUrl(cv.user.avatar)}" alt="${esc(cv.user.name)}"/>${chatStatus(cv).online?'<div class="online-dot"></div>':''}</div>
+    <div class="chat-convo-info"><div class="chat-convo-name">${esc(cv.user.isBusiness?cv.user.bizName:cv.user.name)}</div><div class="chat-convo-preview">${esc(cv.preview)}</div></div>
+    <div class="chat-convo-meta"><div class="chat-convo-time">${esc(cv.time)}</div>${cv.unread>0?`<div class="chat-unread">${Number(cv.unread)}</div>`:''}</div>
   </div>`).join('');
 }
 
@@ -602,10 +750,10 @@ function openConversation(id) {
   activeConvoId=id; const cv=CONVERSATIONS.find(c=>c.id===id); if (!cv) return;
   cv.unread=0; renderChatList();
   const win=document.getElementById('chat-window');
-  win.innerHTML=`<div class="chat-window-header"><button class="chat-back-btn" onclick="closeConversation()">\u2039</button><img src="${cv.user.avatar}" alt=""/><div class="chat-window-header-info"><div class="chat-window-header-name">${cv.user.isBusiness?cv.user.bizName:cv.user.name}${cv.user.isBusiness?' \uD83C\uDFE2':''}</div><div class="chat-window-status ${chatStatus(cv).online?'is-online':''}">${chatStatus(cv).label}</div></div></div>
-    ${cv.post ? `<div class="chat-context" onclick="openDetail(${cv.post.id},'${cv.post.feedType}')">
-      ${cv.post.image && cv.post.mediaType!=='video' ? `<img class="chat-context-thumb" src="${cv.post.image}" onerror="imgFallback(this,'${cv.post.emoji}')"/>` : `<div class="chat-context-thumb chat-context-emoji">${cv.post.emoji}</div>`}
-      <div class="chat-context-info"><div class="chat-context-name">${cv.post.product}</div><div class="chat-context-price">${cv.post.price}</div></div>
+  win.innerHTML=`<div class="chat-window-header"><button class="chat-back-btn" onclick="closeConversation()">\u2039</button><img src="${safeUrl(cv.user.avatar)}" alt=""/><div class="chat-window-header-info"><div class="chat-window-header-name">${esc(cv.user.isBusiness?cv.user.bizName:cv.user.name)}${cv.user.isBusiness?' \uD83C\uDFE2':''}</div><div class="chat-window-status ${chatStatus(cv).online?'is-online':''}">${chatStatus(cv).label}</div></div></div>
+    ${cv.post ? `<div class="chat-context" onclick="openDetail(${Number(cv.post.id)},'${cv.post.feedType==='stock'?'stock':'pagia'}')">
+      ${cv.post.image && cv.post.mediaType!=='video' ? `<img class="chat-context-thumb" src="${safeUrl(cv.post.image)}" data-emoji="${esc(cv.post.emoji)}" onerror="imgFallback(this)"/>` : `<div class="chat-context-thumb chat-context-emoji">${esc(cv.post.emoji)}</div>`}
+      <div class="chat-context-info"><div class="chat-context-name">${esc(cv.post.product)}</div><div class="chat-context-price">${esc(cv.post.price)}</div></div>
       <span class="chat-context-link">${t('view_listing')} ›</span>
     </div>` : ''}
     <div class="chat-messages" id="cm-${id}">${buildMessages(cv)}</div>
@@ -625,18 +773,19 @@ function buildMessages(cv) {
     let avatar = '';
     if (!out) {
       avatar = lastOfRun
-        ? `<div class="chat-msg-avatar"><img src="${cv.user.avatar}" alt=""/></div>`
+        ? `<div class="chat-msg-avatar"><img src="${safeUrl(cv.user.avatar)}" alt=""/></div>`
         : `<div class="chat-msg-avatar spacer"></div>`;
     }
     let body = '';
-    if (m.media) body += m.mediaType === 'video'
-      ? `<video class="chat-media" src="${m.media}" controls playsinline preload="metadata"></video>`
-      : `<img class="chat-media" src="${m.media}" alt="" loading="lazy"/>`;
-    if (m.text) body += `<div class="chat-bubble">${m.text}</div>`;
+    const media = safeUrl(m.media);
+    if (media) body += m.mediaType === 'video'
+      ? `<video class="chat-media" src="${media}" controls playsinline preload="metadata"></video>`
+      : `<img class="chat-media" src="${media}" alt="" loading="lazy"/>`;
+    if (m.text) body += `<div class="chat-bubble">${esc(m.text)}</div>`;
     if (!body) body = `<div class="chat-bubble"></div>`;
     return `<div class="chat-msg ${out ? 'outgoing' : ''} ${grouped ? 'grouped' : ''}">
       ${avatar}
-      <div class="chat-msg-col">${body}<div class="chat-bubble-time">${m.time}${out ? ` <span class="msg-tick ${m.status === 'read' ? 'read' : ''}">${m.status === 'read' ? '✓✓' : '✓'}</span>` : ''}</div></div>
+      <div class="chat-msg-col">${body}<div class="chat-bubble-time">${esc(m.time)}${out ? ` <span class="msg-tick ${m.status === 'read' ? 'read' : ''}">${m.status === 'read' ? '✓✓' : '✓'}</span>` : ''}</div></div>
     </div>`;
   }).join('');
 }
@@ -693,7 +842,10 @@ function sendChatMessage(id) {
 
 function openChatFromPost(id, ft) {
   const post=getPost(id,ft); if (!post) return;
-  let cv=CONVERSATIONS.find(c=>c.user.id===post.user.id);
+  // Match on seller AND product: messaging the same seller about a second item
+  // used to reuse the first conversation, so the messages landed in the wrong
+  // product's room and the context card showed the wrong item.
+  let cv=CONVERSATIONS.find(c=>c.user.id===post.user.id && (!c.post || c.post.id===post.id));
   if (!cv) {
     cv={id:'c'+Date.now(),user:post.user,online:Math.random()>0.4,unread:0,preview:`\u05E9\u05D0\u05DC\u05D4 \u05E2\u05DC "${post.product}"`,time:'\u05E2\u05DB\u05E9\u05D9\u05D5',
       messages:[{from:'me',text:`\u05D4\u05D9\u05D9! \u05E8\u05D0\u05D9\u05EA\u05D9 \u05D0\u05EA "${post.product}" \u05E9\u05DC\u05DA, \u05E2\u05D3\u05D9\u05D9\u05DF \u05D6\u05DE\u05D9\u05DF?`,time:new Date().toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit'})}]};
@@ -706,11 +858,11 @@ function openChatFromPost(id, ft) {
 
 function renderProfileGrid(tab) {
   const grid=document.getElementById('profile-grid'); if (!grid) return;
-  const posts=(tab==='stock'?stockPosts:pagiaPosts).filter(p=>p.user.id===ME.id);
+  const posts=liveFiltered(tab==='stock'?stockPosts:pagiaPosts).filter(isMine);
   if (!posts.length){grid.innerHTML=`<div style="color:var(--text-secondary);font-size:0.9rem;padding:20px 0;grid-column:1/-1">\u05E2\u05D3\u05D9\u05D9\u05DF \u05DC\u05D0 \u05E4\u05E8\u05E1\u05DE\u05EA</div>`;return;}
   grid.innerHTML=posts.map(p=>{
-    const s=p.image?`<img src="${p.image}" alt="${p.product}" onerror="imgFallback(this,'${p.emoji}')"/>`:`<div style="background:var(--bg-secondary);width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:2.5rem">${p.emoji}</div>`;
-    return `<div class="mini-card" onclick="openDetail(${p.id},'${tab}')">${s}<div class="mini-card-overlay">\u2764\uFE0F ${p.likes} \u00B7 \uD83D\uDCAC ${p.comments.length}</div></div>`;
+    const s=safeUrl(p.image)?`<img src="${safeUrl(p.image)}" alt="${esc(p.product)}" data-emoji="${esc(p.emoji)}" onerror="imgFallback(this)"/>`:`<div style="background:var(--bg-secondary);width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:2.5rem">${esc(p.emoji)}</div>`;
+    return `<div class="mini-card" onclick="openDetail(${Number(p.id)},'${tab==='stock'?'stock':'pagia'}')">${s}<div class="mini-card-overlay">\u2764\uFE0F ${Number(p.likes)||0} \u00B7 \uD83D\uDCAC ${p.comments.length}</div></div>`;
   }).join('');
 }
 
@@ -720,16 +872,16 @@ function openEditProfile(){ if (typeof openSettings === 'function') openSettings
 
 function renderExpirySoon() {
   const list=document.getElementById('expiry-soon-list'); if (!list) return;
-  const soon=pagiaPosts.filter(p=>Math.ceil((p.expiry-today)/864e5)<=2).sort((a,b)=>a.expiry-b.expiry).slice(0,4);
+  const soon=liveFiltered(pagiaPosts).filter(p=>!p.taken&&Math.ceil((p.expiry-today)/864e5)<=2).sort((a,b)=>a.expiry-b.expiry).slice(0,4);
   if (!soon.length){list.innerHTML='<div style="color:var(--text-secondary);font-size:0.82rem">'+t('no_urgent')+'</div>';return;}
-  list.innerHTML=soon.map(p=>{const d=Math.ceil((p.expiry-today)/864e5);return `<div class="expiry-item" onclick="openDetail(${p.id},'pagia')"><span class="expiry-emoji">${p.emoji}</span><div class="expiry-info"><div class="expiry-name">${p.product}</div><div class="expiry-time ${d<=0?'critical':''}">${d<=0?t('expiry_today'):t('expiry_left_short')}</div></div></div>`;}).join('');
+  list.innerHTML=soon.map(p=>{const d=Math.ceil((p.expiry-today)/864e5);return `<div class="expiry-item" onclick="openDetail(${Number(p.id)},'pagia')"><span class="expiry-emoji">${esc(p.emoji)}</span><div class="expiry-info"><div class="expiry-name">${esc(p.product)}</div><div class="expiry-time ${d<=0?'critical':''}">${d<=0?t('expiry_today'):t('expiry_left_short')}</div></div></div>`;}).join('');
 }
 
 function renderDealsWidget() {
   const list=document.getElementById('deals-list'); if (!list) return;
-  const deals=stockPosts.filter(p=>p.discountPct>=50).slice(0,3);
+  const deals=liveFiltered(stockPosts).filter(p=>!p.taken&&p.discountPct>=50).slice(0,3);
   if (!deals.length){list.innerHTML='<div style="color:var(--text-secondary);font-size:0.82rem">'+t('no_deals')+'</div>';return;}
-  list.innerHTML=deals.map(p=>`<div class="deal-item" onclick="showPage('feed');switchFeed('stock',document.getElementById('tab-stock'));openDetail(${p.id},'stock')"><span class="deal-emoji">${p.emoji}</span><div class="deal-info"><div class="deal-name">${p.product}</div><div class="deal-discount">-${p.discountPct}% \u00B7 \u20AA${p.salePrice}</div><div class="deal-biz">${p.user.isBusiness?p.user.bizName:t('badge_private')}</div></div></div>`).join('');
+  list.innerHTML=deals.map(p=>`<div class="deal-item" onclick="showPage('feed');switchFeed('stock',document.getElementById('tab-stock'));openDetail(${Number(p.id)},'stock')"><span class="deal-emoji">${esc(p.emoji)}</span><div class="deal-info"><div class="deal-name">${esc(p.product)}</div><div class="deal-discount">-${Number(p.discountPct)||0}% \u00B7 \u20AA${Number(p.salePrice)||0}</div><div class="deal-biz">${p.user.isBusiness?esc(p.user.bizName):t('badge_private')}</div></div></div>`).join('');
 }
 
 // (toggleNotifications is defined once below — the version that also renders the panel.)
@@ -771,15 +923,15 @@ function renderNotificationsPanel() {
   if (!list) return;
   list.innerHTML = NOTIFICATIONS.map(n => {
     const avatar = n.user
-      ? `<img src="${n.user.avatar}" alt="${n.user.name}" />`
+      ? `<img src="${safeUrl(n.user.avatar)}" alt="${esc(n.user.name)}" />`
       : `<span style="font-size:1.4rem">${n.type==='system'?'\uD83C\uDF89':'\uD83D\uDCAC'}</span>`;
     const typeIcon = { comment:'\uD83D\uDCAC', like:'\u2764\uFE0F', chat:'\u2709\uFE0F', system:'\uD83C\uDF89' }[n.type] || '';
     return `
-    <div class="notif-item ${n.unread?'unread':''}" onclick="handleNotifClick(${n.id})">
+    <div class="notif-item ${n.unread?'unread':''}" onclick="handleNotifClick(${Number(n.id)})">
       <div class="notif-avatar">${avatar}</div>
       <div class="notif-text">
-        ${n.user ? `<strong>${n.user.name}</strong> ` : ''}${n.text}
-        <span class="notif-time">${n.time}</span>
+        ${n.user ? `<strong>${esc(n.user.name)}</strong> ` : ''}${esc(n.text)}
+        <span class="notif-time">${esc(n.time)}</span>
       </div>
       <span class="notif-type-icon">${typeIcon}</span>
     </div>`;
@@ -835,7 +987,12 @@ function toggleNotifications() {
 // =====================
 // SIMULATE REAL-TIME ACTIVITY (R8)
 // =====================
+// R31: this simulator exists to make the OFFLINE demo feel alive. It must never
+// run against a live backend: it announced posts by people who don't exist, and
+// incremented likes on real listings — now that likes are rows in the DB, that
+// made the displayed count contradict the database and reset on every reload.
 function startLiveActivity() {
+  const simulationAllowed = () => !(window.BACKEND && BACKEND.ready);
   const randomActions = [
     () => {
       // New pagia post appears
@@ -845,8 +1002,9 @@ function startLiveActivity() {
       showToast(`\uD83C\uDF1F ${names[Math.floor(Math.random()*names.length)]} \u05E4\u05E8\u05E1\u05DD: ${p}`);
     },
     () => {
-      // Simulate like on a random post
-      const allPosts = [...pagiaPosts, ...stockPosts];
+      // Simulate a like — demo posts only, never anything backed by a DB row.
+      const allPosts = [...pagiaPosts, ...stockPosts].filter(p => !p.dbId);
+      if (!allPosts.length) return;
       const post = allPosts[Math.floor(Math.random()*allPosts.length)];
       post.likes++;
       const el = document.getElementById('lc-' + post.id);
@@ -854,6 +1012,7 @@ function startLiveActivity() {
     },
   ];
   setInterval(() => {
+    if (!simulationAllowed()) return;
     if (Math.random() > 0.6) randomActions[Math.floor(Math.random()*randomActions.length)]();
   }, 12000);
 }
@@ -869,17 +1028,56 @@ document.addEventListener('DOMContentLoaded', () => {
   setTimeout(renderCategoryCounts, 500);
 }, { once: true });
 // =====================
-// SAVED ITEMS (R11)
+// SAVED ITEMS (R11 · persisted in R29)
 // =====================
-let savedIds = { pagia: new Set([1, 3]), stock: new Set([101]) };
+// Saves are keyed by the DB id when the post is real, because the local
+// numeric id is just a counter and changes on every reload — keying by it
+// meant your saved items pointed at random posts after a refresh.
+function postKey(post) {
+  if (!post) return null;
+  return post.dbId ? 'db:' + post.dbId : 'demo:' + post.id;
+}
+
+// "Is this post mine?" — a DB post carries the account id (ownerUid); a local
+// demo post only has the in-memory user object. Matching on user.id alone made
+// your own posts disappear from your profile after every reload, because posts
+// reloaded from the DB come back as user "db-<client_id>", never ME.id.
+function isMine(post) {
+  if (!post) return false;
+  if (post.ownerUid && typeof ME !== 'undefined' && ME.uid) return post.ownerUid === ME.uid;
+  return !!(post.user && typeof ME !== 'undefined' && post.user.id === ME.id);
+}
+window.isMine = isMine;
+let savedIds = { pagia: new Set(), stock: new Set() };
+
+function loadSaved() {
+  try {
+    const raw = JSON.parse(localStorage.getItem('pagia_saved') || '{}');
+    savedIds.pagia = new Set(Array.isArray(raw.pagia) ? raw.pagia : []);
+    savedIds.stock = new Set(Array.isArray(raw.stock) ? raw.stock : []);
+  } catch (e) { savedIds = { pagia: new Set(), stock: new Set() }; }
+}
+function persistSaved() {
+  try {
+    localStorage.setItem('pagia_saved', JSON.stringify({ pagia: [...savedIds.pagia], stock: [...savedIds.stock] }));
+  } catch (e) {}
+}
+function isSaved(post, ft) {
+  const set = ft === 'stock' ? savedIds.stock : savedIds.pagia;
+  const k = postKey(post);
+  return !!k && set.has(k);
+}
+loadSaved();
+window.isSaved = isSaved;
+window.postKey = postKey;
 
 function getSavedPosts(feedFilter = 'all') {
   const results = [];
   if (feedFilter === 'all' || feedFilter === 'pagia') {
-    pagiaPosts.filter(p => savedIds.pagia.has(p.id)).forEach(p => results.push({ ...p, _feedType: 'pagia' }));
+    pagiaPosts.filter(p => isSaved(p, 'pagia')).forEach(p => results.push({ ...p, _feedType: 'pagia' }));
   }
   if (feedFilter === 'all' || feedFilter === 'stock') {
-    stockPosts.filter(p => savedIds.stock.has(p.id)).forEach(p => results.push({ ...p, _feedType: 'stock' }));
+    stockPosts.filter(p => isSaved(p, 'stock')).forEach(p => results.push({ ...p, _feedType: 'stock' }));
   }
   return results;
 }
@@ -905,13 +1103,18 @@ function renderSaved(filter, btn) {
 // =====================
 // MARK AS TAKEN / SOLD
 // =====================
+// R29: this used to set post.taken and nothing else — no render path ever read
+// the flag, so the button showed a toast and left the post exactly as it was.
+// Now the card is visibly marked, the post drops out of the urgent/deals
+// widgets, and (for a real post you own) the state is written to the DB.
 function markTaken(postId, feedType) {
   const arr = feedType === 'pagia' ? pagiaPosts : stockPosts;
   const post = arr.find(p => p.id === postId);
   if (!post) return;
   post.taken = true;
+  if (typeof backendMarkTaken === 'function') backendMarkTaken(post);
   showToast('✅ ' + (feedType === 'pagia' ? t('toast_taken') : t('toast_sold')));
-  renderFeed();
+  renderFeed(); renderExpirySoon(); renderDealsWidget(); renderProfileGrid(feedType);
   // Close detail modal
   document.getElementById('detail-modal-overlay').classList.add('hidden');
   document.body.style.overflow = '';
@@ -923,7 +1126,7 @@ function markTaken(postId, feedType) {
 function updateProfileStats() {
   const postsEl  = document.getElementById('pstat-posts');
   const savedEl  = document.getElementById('pstat-saved');
-  if (postsEl) postsEl.textContent = pagiaPosts.filter(p => p.user.id === ME.id).length + stockPosts.filter(p => p.user.id === ME.id).length;
+  if (postsEl) postsEl.textContent = pagiaPosts.filter(isMine).length + stockPosts.filter(isMine).length;
   if (savedEl)  savedEl.textContent  = savedIds.pagia.size + savedIds.stock.size;
 }
 
@@ -939,7 +1142,7 @@ function renderCategoryCounts() {
     '\u05E7\u05D5\u05E1\u05DE\u05D8\u05D9\u05E7\u05D4': 'cat-cosm',
     '\u05E9\u05EA\u05D9\u05D9\u05D4':      'cat-drinks',
   };
-  const all = [...pagiaPosts, ...stockPosts];
+  const all = [...liveFiltered(pagiaPosts), ...liveFiltered(stockPosts)];
   Object.entries(catMap).forEach(([cat, elId]) => {
     const el = document.getElementById(elId);
     if (el) el.textContent = all.filter(p => p.category === cat).length;

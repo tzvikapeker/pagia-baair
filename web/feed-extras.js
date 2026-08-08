@@ -83,10 +83,23 @@ function _feedIsPlain() {
   return true;
 }
 
+// R29: when the app is connected to the DB, scrolling loads the NEXT PAGE OF
+// REAL POSTS. It used to fabricate mock products forever and splice them in
+// among genuine listings — on a live feed that reads as an app full of fake
+// items. Mock generation now only happens in offline/demo mode.
 function loadMoreFeed() {
   if (_feedLoading || !_feedIsPlain()) return;
   const grid = document.getElementById('feed-grid');
   if (!grid) return;
+
+  if (typeof backendLoadMore === 'function' && window.BACKEND && BACKEND.ready) {
+    _feedLoading = true;
+    Promise.resolve(backendLoadMore(currentFeedType))
+      .catch(e => console.warn('[feed] load more failed:', e && e.message))
+      .then(() => { _feedLoading = false; });
+    return;
+  }
+
   _feedLoading = true;
   const batch = 4;
   const arr = currentFeedType === 'stock' ? stockPosts : pagiaPosts;

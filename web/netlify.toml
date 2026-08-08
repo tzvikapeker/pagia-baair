@@ -1,8 +1,0 @@
-# Static site — no build step. Publishes the project root as-is.
-[build]
-  publish = "."
-  command = "echo no-build"
-
-# node_modules is Electron-only and not needed for the web app.
-[build.environment]
-  NETLIFY_USE_YARN = "false"

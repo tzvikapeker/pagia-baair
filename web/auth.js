@@ -33,12 +33,15 @@ function applyAuthUser() {
   const nameEl = document.getElementById('profile-name'); if (nameEl) nameEl.textContent = name;
   const locEl = document.getElementById('profile-location'); if (locEl && ME.city) locEl.textContent = '📍 ' + ME.city;
   document.querySelectorAll('.nav-avatar img, .profile-avatar').forEach(a => { a.src = ME.avatar; });
+  // Let the user's own profile edits (settings) win over the account defaults.
+  if (typeof applyIdentity === 'function') applyIdentity();
   try { renderFeed(); renderChatList(); updateProfileStats(); } catch (e) {}
 }
 
 function updateAuthUI() {
   const btn = document.getElementById('auth-btn');
-  if (btn) btn.innerHTML = isLoggedIn() ? ('👤 ' + ME.name) : ('🔑 ' + t('login'));
+  // textContent, not innerHTML — the display name comes from account metadata.
+  if (btn) btn.textContent = isLoggedIn() ? ('👤 ' + ME.name) : ('🔑 ' + t('login'));
 }
 
 async function loginGoogle() {
