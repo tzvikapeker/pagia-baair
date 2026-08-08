@@ -22,6 +22,25 @@ function requireLogin(reasonKey) {
 }
 function _val(id) { const e = document.getElementById(id); return e ? e.value.trim() : ''; }
 
+// R35: sign-in and sign-up wait on the network. Without feedback the button
+// looks dead and people press it again, firing a second request.
+async function _busy(btn, label, fn) {
+  if (!btn) return fn();
+  if (btn.dataset.busy) return;            // already in flight — ignore repeats
+  const original = btn.textContent;
+  btn.dataset.busy = '1';
+  btn.disabled = true;
+  btn.classList.add('is-busy');
+  btn.textContent = label;
+  try { return await fn(); }
+  finally {
+    delete btn.dataset.busy;
+    btn.disabled = false;
+    btn.classList.remove('is-busy');
+    btn.textContent = original;
+  }
+}
+
 function applyAuthUser() {
   updateAuthUI();
   if (!AUTH.user) return;
@@ -44,25 +63,31 @@ function updateAuthUI() {
   if (btn) btn.textContent = isLoggedIn() ? ('👤 ' + ME.name) : ('🔑 ' + t('login'));
 }
 
-async function loginGoogle() {
+async function loginGoogle(ev) {
   if (!AUTH.client) return;
-  const { error } = await AUTH.client.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: location.origin } });
-  if (error) showToast('⚠️ ' + error.message);
+  await _busy(ev && ev.currentTarget, t('login_working'), async () => {
+    const { error } = await AUTH.client.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: location.origin } });
+    if (error) showToast('⚠️ ' + error.message);
+  });
 }
-async function signupEmail() {
+async function signupEmail(ev) {
   const email = _val('login-email'), pass = _val('login-pass'), name = _val('login-name');
   if (!email || !pass || !name) { showToast('⚠️ ' + t('login_fill')); return; }
-  const { data, error } = await AUTH.client.auth.signUp({ email, password: pass, options: { data: { name } } });
-  if (error) { showToast('⚠️ ' + error.message); return; }
-  if (data.session) location.reload();
-  else { showToast('📧 ' + t('login_check_email')); closeLogin(); }
+  await _busy(ev && ev.currentTarget, t('login_working'), async () => {
+    const { data, error } = await AUTH.client.auth.signUp({ email, password: pass, options: { data: { name } } });
+    if (error) { showToast('⚠️ ' + error.message); return; }
+    if (data.session) location.reload();
+    else { showToast('📧 ' + t('login_check_email')); closeLogin(); }
+  });
 }
-async function loginEmail() {
+async function loginEmail(ev) {
   const email = _val('login-email'), pass = _val('login-pass');
   if (!email || !pass) { showToast('⚠️ ' + t('login_fill')); return; }
-  const { error } = await AUTH.client.auth.signInWithPassword({ email, password: pass });
-  if (error) { showToast('⚠️ ' + error.message); return; }
-  location.reload();
+  await _busy(ev && ev.currentTarget, t('login_working'), async () => {
+    const { error } = await AUTH.client.auth.signInWithPassword({ email, password: pass });
+    if (error) { showToast('⚠️ ' + error.message); return; }
+    location.reload();
+  });
 }
 async function logout() {
   if (AUTH.client) await AUTH.client.auth.signOut();
@@ -74,12 +99,12 @@ function loginModalHTML() {
   return `<div class="modal post-modal">
     <div class="modal-header"><h3>${signup ? t('signup_title') : t('login_title')}</h3><button class="modal-close" onclick="closeLogin()">✕</button></div>
     <div class="modal-body">
-      <button class="btn-google" onclick="loginGoogle()"><span class="g-mark">G</span> ${t('login_google')}</button>
+      <button class="btn-google" onclick="loginGoogle(event)"><span class="g-mark">G</span> ${t('login_google')}</button>
       <div class="auth-or"><span>${t('login_or')}</span></div>
       ${signup ? `<div class="form-group"><label>${t('field_display_name')}</label><input id="login-name" type="text" placeholder="${t('field_name_ph')}"/></div>` : ''}
       <div class="form-group"><label>${t('login_email')}</label><input id="login-email" type="email" autocomplete="email"/></div>
       <div class="form-group"><label>${t('login_pass')}</label><input id="login-pass" type="password" autocomplete="${signup ? 'new-password' : 'current-password'}"/></div>
-      <button class="btn-primary" onclick="${signup ? 'signupEmail()' : 'loginEmail()'}">${signup ? t('signup_do') : t('login_do')}</button>
+      <button class="btn-primary" onclick="${signup ? 'signupEmail(event)' : 'loginEmail(event)'}">${signup ? t('signup_do') : t('login_do')}</button>
       <div class="auth-switch" onclick="toggleLoginMode()">${signup ? t('login_have') : t('login_need')}</div>
     </div></div>`;
 }

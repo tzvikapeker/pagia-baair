@@ -9,6 +9,10 @@
 
 const BACKEND = { client: null, ready: false, pageSize: 30, loaded: 0, exhausted: false, realCount: { pagia: 0, stock: 0 } };
 window.BACKEND = BACKEND;
+// R35: set synchronously at load, before the first render — otherwise the feed
+// paints "nobody has posted yet" for a second and then swaps in real posts,
+// which reads as an empty app to anyone with a slow connection.
+BACKEND.loading = (typeof SUPABASE_URL === 'string' && SUPABASE_URL.startsWith('https://') && !SUPABASE_URL.includes('YOUR-'));
 const CLIENT_ID = (() => {
   try {
     let v = localStorage.getItem('pagia_client_id');
@@ -147,6 +151,9 @@ publishPost = function () {
 // was unreachable the app looked completely normal — full of demo listings that
 // a visitor would take for real ones. Now it says so on screen.
 function showDemoBanner(reason) {
+  // whatever the reason, we are no longer waiting for the server
+  BACKEND.loading = false;
+  try { renderFeed(); } catch (e) {}
   if (document.getElementById('demo-banner')) return;
   const bar = document.createElement('div');
   bar.id = 'demo-banner';
@@ -185,6 +192,15 @@ async function backendInit() {
       .range(0, BACKEND.pageSize - 1);
     if (error) { console.error('[backend] load failed:', error.message); showDemoBanner(error.message); return; }
     BACKEND.ready = true;
+    BACKEND.loading = false;
+    // R33: the app ships with demo notifications and demo conversations so the
+    // offline build feels populated. On a live backend they are fiction — a
+    // first-time visitor was shown "2 unread" and messages from people who
+    // don't exist. Real ones arrive from the DB and over realtime.
+    try {
+      if (typeof NOTIFICATIONS !== 'undefined') { NOTIFICATIONS.length = 0; updateNotifBadge(); renderNotificationsPanel(); }
+      if (typeof CONVERSATIONS !== 'undefined') { CONVERSATIONS.length = 0; renderChatList(); }
+    } catch (e) {}
     BACKEND.loaded = data.length;
     BACKEND.exhausted = data.length < BACKEND.pageSize;
     console.log(`[backend] connected — ${data.length} posts loaded from DB`);
@@ -197,7 +213,7 @@ async function backendInit() {
     BACKEND.realCount.pagia = pag.length;
     BACKEND.realCount.stock = stk.length;
     renderFeed(); renderExpirySoon(); renderDealsWidget();
-    try { updateProfileStats(); } catch (e) {}
+    try { updateProfileStats(); renderSidebarStats(); renderLeaderboard(); } catch (e) {}
     backendHydrateSocial(pag.concat(stk)).then(() => renderFeed());
 
     // Live updates: new posts from OTHER users appear instantly.

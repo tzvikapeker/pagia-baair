@@ -12,7 +12,7 @@
   <link rel="apple-touch-icon" href="images/logo.svg" />
   <link rel="manifest" href="manifest.json" />
   <meta name="theme-color" content="#0c1016" />
-  <link rel="stylesheet" href="style.css?v=r31" />
+  <link rel="stylesheet" href="style.css?v=r35b" />
 </head>
 <body>
 
@@ -82,16 +82,16 @@
         </button>
         <button class="side-btn" id="btn-chat" onclick="showPage('chat')">
           <span class="side-icon">&#x1F4AC;</span><span class="side-label" data-i18n="nav_chat">&#x05E6;&#x27;&#x05D0;&#x05D8;</span>
-          <span class="chat-badge">2</span>
+          <span class="chat-badge" id="chat-badge" style="display:none">0</span>
         </button>
         <button class="side-btn" id="btn-profile" onclick="showPage('profile')">
           <span class="side-icon">&#x1F464;</span><span class="side-label" data-i18n="nav_profile">&#x05E4;&#x05E8;&#x05D5;&#x05E4;&#x05D9;&#x05DC;</span>
         </button>
       </nav>
       <div class="sidebar-stats">
-        <div class="stat-item"><span class="stat-num">127</span><span class="stat-lbl" data-i18n="stat_products_saved">&#x05DE;&#x05D5;&#x05E6;&#x05E8;&#x05D9;&#x05DD; &#x05E0;&#x05E9;&#x05DE;&#x05E8;&#x05D5;</span></div>
-        <div class="stat-item"><span class="stat-num">48</span><span class="stat-lbl" data-i18n="stat_users_nearby">&#x05DE;&#x05E9;&#x05EA;&#x05DE;&#x05E9;&#x05D9;&#x05DD; &#x05E7;&#x05E8;&#x05D5;&#x05D1;&#x05D9;&#x05DD;</span></div>
-        <div class="stat-item"><span class="stat-num">12</span><span class="stat-lbl" data-i18n="stat_active_biz">&#x05E2;&#x05E1;&#x05E7;&#x05D9;&#x05DD; &#x05E4;&#x05E2;&#x05D9;&#x05DC;&#x05D9;&#x05DD;</span></div>
+        <div class="stat-item"><span class="stat-num" id="stat-saved">0</span><span class="stat-lbl" data-i18n="stat_products_saved">&#x05DE;&#x05D5;&#x05E6;&#x05E8;&#x05D9;&#x05DD; &#x05E0;&#x05E9;&#x05DE;&#x05E8;&#x05D5;</span></div>
+        <div class="stat-item"><span class="stat-num" id="stat-sellers">0</span><span class="stat-lbl" data-i18n="stat_sellers">&#x05DE;&#x05E9;&#x05EA;&#x05DE;&#x05E9;&#x05D9;&#x05DD; &#x05E7;&#x05E8;&#x05D5;&#x05D1;&#x05D9;&#x05DD;</span></div>
+        <div class="stat-item"><span class="stat-num" id="stat-biz">0</span><span class="stat-lbl" data-i18n="stat_active_biz">&#x05E2;&#x05E1;&#x05E7;&#x05D9;&#x05DD; &#x05E4;&#x05E2;&#x05D9;&#x05DC;&#x05D9;&#x05DD;</span></div>
       </div>
     </aside>
 
@@ -107,9 +107,9 @@
             <div class="composer-input" data-i18n="composer_ph">&#x05DE;&#x05D4; &#x05EA;&#x05E8;&#x05E6;&#x05D4; &#x05DC;&#x05E9;&#x05EA;&#x05E3;?</div>
           </div>
           <div class="composer-actions">
-            <button class="composer-btn" onclick="openPostModal()"><span class="composer-btn-icon">&#x1F4F7;</span><span data-i18n="composer_photo">&#x05EA;&#x05DE;&#x05D5;&#x05E0;&#x05D4; / &#x05D5;&#x05D9;&#x05D3;&#x05D0;&#x05D5;</span></button>
-            <button class="composer-btn" onclick="openPostModal()"><span class="composer-btn-icon">&#x1F3F7;&#xFE0F;</span><span data-i18n="composer_stock">&#x05E1;&#x05D8;&#x05D5;&#x05E7; / &#x05DE;&#x05DB;&#x05D9;&#x05E8;&#x05D4;</span></button>
-            <button class="composer-btn" onclick="openPostModal()"><span class="composer-btn-icon">&#x1F951;</span><span data-i18n="composer_pagia">&#x05E4;&#x05D2;&#x05D9;&#x05D4;</span></button>
+            <button class="composer-btn" onclick="openComposer('media')"><span class="composer-btn-icon">&#x1F4F7;</span><span data-i18n="composer_photo">&#x05EA;&#x05DE;&#x05D5;&#x05E0;&#x05D4; / &#x05D5;&#x05D9;&#x05D3;&#x05D0;&#x05D5;</span></button>
+            <button class="composer-btn" onclick="openComposer('stock')"><span class="composer-btn-icon">&#x1F3F7;&#xFE0F;</span><span data-i18n="composer_stock">&#x05E1;&#x05D8;&#x05D5;&#x05E7; / &#x05DE;&#x05DB;&#x05D9;&#x05E8;&#x05D4;</span></button>
+            <button class="composer-btn" onclick="openComposer('pagia')"><span class="composer-btn-icon">&#x1F951;</span><span data-i18n="composer_pagia">&#x05E4;&#x05D2;&#x05D9;&#x05D4;</span></button>
           </div>
         </div>
         <div class="feed-switcher">
@@ -428,7 +428,7 @@
     </button>
     <button class="bottom-nav-btn" id="bn-chat" onclick="showPage('chat')">
       <span class="bn-icon">&#x1F4AC;</span><span data-i18n="nav_chat">&#x05E6;&#x27;&#x05D0;&#x05D8;</span>
-      <span class="bn-badge">2</span>
+      <span class="bn-badge" id="bn-chat-badge" style="display:none">0</span>
     </button>
     <button class="bottom-nav-btn" id="bn-profile" onclick="showPage('profile')">
       <span class="bn-icon">&#x1F464;</span><span data-i18n="nav_profile">&#x05E4;&#x05E8;&#x05D5;&#x05E4;&#x05D9;&#x05DC;</span>
@@ -441,12 +441,12 @@
 
 <div class="toast hidden" id="toast"></div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
-<script src="config.js?v=r31"></script>
-<script src="i18n.js?v=r31"></script>
-<script src="app.js?v=r31"></script>
-<script src="feed-extras.js?v=r31"></script>
-<script src="settings.js?v=r31"></script>
-<script src="auth.js?v=r31"></script>
-<script src="backend.js?v=r31"></script>
+<script src="config.js?v=r35b"></script>
+<script src="i18n.js?v=r35b"></script>
+<script src="app.js?v=r35b"></script>
+<script src="feed-extras.js?v=r35b"></script>
+<script src="settings.js?v=r35b"></script>
+<script src="auth.js?v=r35b"></script>
+<script src="backend.js?v=r35b"></script>
 </body>
 </html>

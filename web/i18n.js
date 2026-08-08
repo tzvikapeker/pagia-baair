@@ -208,6 +208,10 @@ const I18N = {
   empty_post_now:   { he:'פרסם מודעה', en:'Post a listing', ru:'Разместить объявление', ar:'انشر إعلاناً' },
   empty_no_match:   { he:'לא נמצאו מודעות שמתאימות לחיפוש', en:'No listings match your search', ru:'Ничего не найдено', ar:'لا نتائج مطابقة' },
   empty_show_all:   { he:'הצג הכל', en:'Show all', ru:'Показать всё', ar:'عرض الكل' },
+  // R33 — the sidebar counts real things now, so the label has to say what it counts
+  stat_sellers:     { he:'מפרסמים פעילים', en:'Active posters', ru:'Активных авторов', ar:'ناشرون نشطون' },
+  // R35 — button state while a request is in flight
+  login_working:    { he:'רגע…', en:'Working…', ru:'Минуту…', ar:'لحظة…' },
   login_fill:       { he:'מלא את כל השדות', en:'Fill all fields', ru:'Заполните все поля', ar:'املأ كل الحقول' },
   login_check_email:{ he:'שלחנו לך מייל לאישור', en:'Check your email to confirm', ru:'Проверьте почту для подтверждения', ar:'تحقق من بريدك للتأكيد' },
   delete_confirm:   { he:'למחוק את הפוסט?', en:'Delete this post?', ru:'Удалить пост?', ar:'حذف المنشور؟' },
