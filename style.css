@@ -2892,6 +2892,10 @@ body {
    ===================================================================== */
 @media (max-width: 900px) {
   .bottom-nav { display: block; }
+  /* the 5-column rule lived inside the 640 query; showing the bar up to 900
+     without it left five items in a 4-column grid, wrapping "profile" onto
+     a second row. */
+  .bottom-nav-inner { grid-template-columns: repeat(5, 1fr); }
   .main-layout { padding-bottom: 80px; }
 
   .chat-layout { grid-template-columns: 1fr !important; }
@@ -2908,6 +2912,9 @@ body {
   .product-card .action-btn { min-height: 44px; padding-top: 8px; padding-bottom: 8px; }
   .comment-send-btn, .chat-attach-btn { min-width: 44px; min-height: 44px; }
   .bottom-nav-btn { min-height: 48px; }
+  .auth-btn { min-height: 40px; }
+  .composer-btn { min-height: 44px; }
+  .filter-tab { min-height: 40px; }
 }
 
 /* R33 — the login button was collapsing to "🔑 …".

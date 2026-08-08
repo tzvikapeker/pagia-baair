@@ -1,5 +1,11 @@
 ﻿# CHANGELOG - פגיה בעיר
 
+## R36 - 2026-08-09 — Sweep across every page, and a regression I caused
+- **The bottom bar wrapped onto two rows between 641 and 900px.** R32 showed the bar for that range, but the 5-column grid rule lived inside the ≤640 query — so five items landed in a 4-column grid and "פרופיל" dropped to a second row. Measuring said the layout was fine; only rendering it at 900px showed the break. Fixed at the same breakpoint.
+- Swept all five pages (feed, explore, saved, chat, profile) against all four languages at phone width: zero overflowing elements across all twenty combinations, and the document direction correct in each.
+- Remaining small touch targets raised on coarse pointers: the login button (33px) and the composer buttons (36px).
+- sync-agent: the `portable/` rule now separates "sitting on disk" from "about to enter the repo" — a warning when it is gitignored, an error when it is not. The rule exists to keep another project's toolkit out of this repo, and .gitignore already achieves that.
+
 ## R35 - 2026-08-08 — Loading states
 - **The feed lied while it was loading.** Until the first page arrived the app showed the bundled demo listings, then yanked them away and replaced them with real ones — a content flash. And once demo listings were hidden, the gap said "nobody has posted yet", so a slow connection made a working app look abandoned before the data landed. The feed now shows skeleton cards shaped like the real thing (avatar, two header lines, the 16:10 media block, title, body, action row) for exactly that window. `BACKEND.loading` is set synchronously when backend.js loads, before the first paint, so there is no flash at any point.
 - Demo listings are treated as content only once we know there is no backend — not while one is still on its way.
