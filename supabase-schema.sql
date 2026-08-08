@@ -113,3 +113,89 @@ begin
   alter publication supabase_realtime add table public.chat_messages;
 exception when duplicate_object then null;
 end $$;
+
+-- ============================================================
+-- R29: סימון "נלקח / נמכר" — הרץ את הבלוק הזה פעם אחת
+-- בלעדיו הכפתור עובד רק מקומית בדפדפן ולא נשמר.
+-- העדכון מוגן ממילא ע"י "owner update" — רק הבעלים יכול לסמן.
+-- ============================================================
+alter table public.posts add column if not exists taken boolean not null default false;
+create index if not exists posts_taken_idx on public.posts (taken, created_at desc);
+
+-- ============================================================
+-- R30: לייקים + תגובות אמיתיים, וצ'אט פרטי גם בצד השרת
+-- כל הבלוק בטוח להרצה חוזרת (if not exists / drop policy if exists).
+-- הוא רק מוסיף — לא מוחק אף נתון קיים.
+-- ============================================================
+
+-- ---------- לייקים ----------
+-- שורה אחת לכל (פוסט, משתמש). ה-PK הכפול הוא מה שמונע לייק כפול.
+create table if not exists public.post_likes (
+  post_id    uuid not null references public.posts(id) on delete cascade,
+  user_id    uuid not null,
+  created_at timestamptz not null default now(),
+  primary key (post_id, user_id)
+);
+create index if not exists post_likes_post_idx on public.post_likes (post_id);
+
+alter table public.post_likes enable row level security;
+drop policy if exists "likes read"   on public.post_likes;
+drop policy if exists "likes insert" on public.post_likes;
+drop policy if exists "likes delete" on public.post_likes;
+create policy "likes read"   on public.post_likes for select using (true);
+create policy "likes insert" on public.post_likes for insert with check (auth.uid() = user_id);
+create policy "likes delete" on public.post_likes for delete using (auth.uid() = user_id);
+
+-- ---------- תגובות ----------
+create table if not exists public.post_comments (
+  id            uuid primary key default gen_random_uuid(),
+  created_at    timestamptz not null default now(),
+  post_id       uuid not null references public.posts(id) on delete cascade,
+  user_id       uuid not null,
+  author_name   text,
+  author_avatar text,
+  text          text not null check (char_length(text) between 1 and 1000)
+);
+create index if not exists post_comments_post_idx on public.post_comments (post_id, created_at);
+
+alter table public.post_comments enable row level security;
+drop policy if exists "comments read"   on public.post_comments;
+drop policy if exists "comments insert" on public.post_comments;
+drop policy if exists "comments delete" on public.post_comments;
+create policy "comments read"   on public.post_comments for select using (true);
+create policy "comments insert" on public.post_comments for insert with check (auth.uid() = user_id);
+create policy "comments delete" on public.post_comments for delete using (auth.uid() = user_id);
+
+do $$
+begin
+  alter publication supabase_realtime add table public.post_likes;
+exception when duplicate_object then null;
+end $$;
+do $$
+begin
+  alter publication supabase_realtime add table public.post_comments;
+exception when duplicate_object then null;
+end $$;
+
+-- ---------- צ'אט פרטי בצד השרת ----------
+-- עד כה "public chat read using (true)" — כלומר כל אחד יכול היה לשלוף את כל
+-- ההודעות בטבלה. עכשיו רק שני הצדדים בשיחה רואים אותה.
+-- buyer_key = מזהה הקונה (החלק שאחרי ':' ב-room), seller_uid = בעל הפוסט.
+alter table public.chat_messages add column if not exists buyer_key  text;
+alter table public.chat_messages add column if not exists seller_uid uuid;
+create index if not exists chat_participants_idx on public.chat_messages (buyer_key, seller_uid);
+
+drop policy if exists "public chat read"   on public.chat_messages;
+drop policy if exists "public chat insert" on public.chat_messages;
+drop policy if exists "auth chat insert"   on public.chat_messages;
+drop policy if exists "chat participants read"   on public.chat_messages;
+drop policy if exists "chat participants insert" on public.chat_messages;
+create policy "chat participants read" on public.chat_messages for select
+  using (auth.uid()::text = buyer_key or auth.uid() = seller_uid);
+create policy "chat participants insert" on public.chat_messages for insert
+  with check (auth.uid() = user_id and (auth.uid()::text = buyer_key or auth.uid() = seller_uid));
+
+-- שים לב: הודעות שנשלחו לפני R30 אין להן buyer_key/seller_uid, ולכן הן לא
+-- יופיעו יותר. הן לא נמחקות — רק מוסתרות. לביטול מלא של השינוי הזה:
+--   drop policy "chat participants read" on public.chat_messages;
+--   create policy "public chat read" on public.chat_messages for select using (true);

@@ -40,7 +40,8 @@ function applyAuthUser() {
 
 function updateAuthUI() {
   const btn = document.getElementById('auth-btn');
-  if (btn) btn.innerHTML = isLoggedIn() ? ('👤 ' + ME.name) : ('🔑 ' + t('login'));
+  // textContent, not innerHTML — the display name comes from account metadata.
+  if (btn) btn.textContent = isLoggedIn() ? ('👤 ' + ME.name) : ('🔑 ' + t('login'));
 }
 
 async function loginGoogle() {

@@ -4,3 +4,13 @@ SYNC_REPORT.md
 *.zip
 .DS_Store
 Thumbs.db
+
+# Google Drive sync leftovers
+.tmp.driveupload/
+.tmp.drivedownload/
+
+# Windows shortcuts — machine-specific absolute paths + hostname
+*.lnk
+
+# Local tool state (launch.json is shared on purpose)
+.claude/settings.local.json

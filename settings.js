@@ -1,14 +1,15 @@
 'use strict';
 // =====================================================================
-// settings.js — profile + location settings
+// settings.js — profile + location settings (R27, self-contained labels)
 // Full editable profile: name, bio, avatar, multiple cities, areas.
-// GPS snaps to the nearest real Israeli city (fixes regional-council names).
-// backend.js consults notifAllowsLocation() before notifying.
+// GPS snaps to the nearest real Israeli city.
 // =====================================================================
 
 const DEFAULT_SETTINGS = { name: '', bio: '', avatarSeed: '', cities: [], areas: [], onlyMyArea: true };
 
-// Major Israeli cities (lat, lng) — GPS snaps to the nearest of these.
+// Label with Hebrew fallback if the i18n key isn't present yet.
+function _L(key, he) { try { const v = t(key); return (v && v !== key) ? v : he; } catch (e) { return he; } }
+
 const IL_CITIES = [
   ['תל אביב', 32.0853, 34.7818], ['ירושלים', 31.7683, 35.2137], ['חיפה', 32.7940, 34.9896],
   ['ראשון לציון', 31.9730, 34.8066], ['פתח תקווה', 32.0840, 34.8878], ['אשדוד', 31.8014, 34.6435],
@@ -35,7 +36,7 @@ function _hav(la1, lo1, la2, lo2) {
 }
 function nearestCity(lat, lng) {
   let best = null, bd = Infinity;
-  for (const [name, la, lo] of IL_CITIES) { const d = _hav(lat, lng, la, lo); if (d < bd) { bd = d; best = name; } }
+  for (const c of IL_CITIES) { const d = _hav(lat, lng, c[1], c[2]); if (d < bd) { bd = d; best = c[0]; } }
   return best;
 }
 
@@ -43,18 +44,15 @@ function getSettings() {
   let s;
   try { s = Object.assign({}, DEFAULT_SETTINGS, JSON.parse(localStorage.getItem('pagia_settings') || '{}')); }
   catch (e) { s = Object.assign({}, DEFAULT_SETTINGS); }
-  if ((!s.cities || !s.cities.length) && s.city) s.cities = [s.city]; // migrate old single-city
+  if ((!s.cities || !s.cities.length) && s.city) s.cities = [s.city];
   if (!Array.isArray(s.cities)) s.cities = [];
   if (!Array.isArray(s.areas)) s.areas = [];
   return s;
 }
 function saveSettings(s) { try { localStorage.setItem('pagia_settings', JSON.stringify(s)); } catch (e) {} }
 
-function avatarUrl(seedOrName) {
-  return 'https://api.dicebear.com/7.x/avataaars/svg?seed=' + encodeURIComponent(seedOrName || 'user');
-}
+function avatarUrl(seedOrName) { return 'https://api.dicebear.com/7.x/avataaars/svg?seed=' + encodeURIComponent(seedOrName || 'user'); }
 
-// Apply the saved profile to ME + the on-screen profile.
 function applyIdentity() {
   const s = getSettings();
   if (typeof ME === 'undefined') return;
@@ -65,12 +63,10 @@ function applyIdentity() {
   if (s.cities.length) ME.city = s.cities[0];
   const nameEl = document.getElementById('profile-name'); if (nameEl && s.name) nameEl.textContent = s.name;
   const bioEl = document.getElementById('profile-bio'); if (bioEl && s.bio) bioEl.textContent = s.bio;
-  const locEl = document.getElementById('profile-location');
-  if (locEl && s.cities.length) locEl.textContent = '📍 ' + s.cities.join(' · ');
+  const locEl = document.getElementById('profile-location'); if (locEl && s.cities.length) locEl.textContent = '📍 ' + s.cities.join(' · ');
   document.querySelectorAll('.nav-avatar img, .profile-avatar').forEach(a => { a.src = ME.avatar; });
 }
 
-// Should a post at `loc` trigger a notification for this user?
 function notifAllowsLocation(loc) {
   const s = getSettings();
   if (!s.onlyMyArea) return true;
@@ -81,7 +77,6 @@ function notifAllowsLocation(loc) {
   return needles.some(n => hay.includes(n));
 }
 
-// GPS → nearest real city (added to the cities field). Falls back to IP.
 async function detectLocation() {
   const addCity = c => {
     const el = document.getElementById('set-cities'); if (!el || !c) return;
@@ -94,20 +89,20 @@ async function detectLocation() {
       const r = await fetch('https://ipapi.co/json/'); const d = await r.json();
       if (d && (d.latitude || d.city)) {
         const c = (d.latitude && d.longitude) ? nearestCity(d.latitude, d.longitude) : d.city;
-        addCity(c); showToast('✅ ' + t('geo_found', { x: c })); return true;
+        addCity(c); showToast('✅ ' + _L('geo_found', 'זוהה') + ': ' + c); return true;
       }
     } catch (e) {}
     return false;
   };
-  showToast('📍 ' + t('geo_detecting'));
+  showToast('📍 ' + _L('geo_detecting', 'מזהה מיקום...'));
   if (navigator.geolocation) {
     navigator.geolocation.getCurrentPosition(async pos => {
       const c = nearestCity(pos.coords.latitude, pos.coords.longitude);
-      if (c) { addCity(c); showToast('✅ ' + t('geo_found', { x: c })); }
-      else if (!(await viaIP())) showToast('⚠️ ' + t('geo_failed'));
-    }, async () => { if (!(await viaIP())) showToast('⚠️ ' + t('geo_denied')); },
+      if (c) { addCity(c); showToast('✅ ' + _L('geo_found', 'זוהה') + ': ' + c); }
+      else if (!(await viaIP())) showToast('⚠️ ' + _L('geo_failed', 'לא הצלחתי לזהות'));
+    }, async () => { if (!(await viaIP())) showToast('⚠️ ' + _L('geo_denied', 'הגישה נחסמה')); },
     { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 });
-  } else if (!(await viaIP())) showToast('⚠️ ' + t('geo_unsupported'));
+  } else if (!(await viaIP())) showToast('⚠️ ' + _L('geo_unsupported', 'לא נתמך'));
 }
 window.detectLocation = detectLocation;
 
@@ -128,46 +123,35 @@ function openSettings() {
   overlay.className = 'modal-overlay';
   overlay.id = 'settings-overlay';
   overlay.onclick = e => { if (e.target === overlay) closeSettings(); };
-  overlay.innerHTML = `
-    <div class="modal post-modal">
-      <div class="modal-header">
-        <h3>⚙️ ${t('settings_title')}</h3>
-        <button class="modal-close" onclick="closeSettings()">✕</button>
-      </div>
-      <div class="modal-body">
-        <div class="form-group" style="text-align:center">
-          <img id="set-avatar-preview" src="${curAvatar}" alt="" style="width:84px;height:84px;border-radius:50%;background:var(--bg-secondary)"/>
-          <div><button type="button" class="btn-secondary" style="margin-top:8px" onclick="shuffleAvatar()">🎲 ${t('avatar_shuffle')}</button></div>
-        </div>
-        <div class="form-group">
-          <label>${t('field_display_name')}</label>
-          <input type="text" id="set-name" value="${esc(s.name)}" placeholder="${t('field_name_ph')}" />
-        </div>
-        <div class="form-group">
-          <label>${t('field_bio')}</label>
-          <textarea id="set-bio" rows="2" placeholder="${t('field_bio_ph')}">${esc(s.bio)}</textarea>
-        </div>
-        <div class="form-group">
-          <label>${t('field_my_cities')}</label>
-          <input type="text" id="set-cities" value="${esc(s.cities.join(', '))}" placeholder="${t('field_cities_ph')}" />
-          <button type="button" class="btn-secondary" style="margin-top:8px;width:100%" onclick="detectLocation()">📍 ${t('geo_detect')}</button>
-          <div style="color:var(--text-secondary);font-size:0.8rem;margin-top:6px">${t('field_cities_hint')}</div>
-        </div>
-        <div class="form-group">
-          <label>${t('field_my_areas')}</label>
-          <input type="text" id="set-areas" value="${esc(s.areas.join(', '))}" placeholder="${t('field_areas_ph')}" />
-          <div style="color:var(--text-secondary);font-size:0.8rem;margin-top:6px">${t('field_areas_hint')}</div>
-        </div>
-        <div class="form-group">
-          <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
-            <input type="checkbox" id="set-only-area" ${s.onlyMyArea ? 'checked' : ''} />
-            <span>${t('notif_only_area')}</span>
-          </label>
-        </div>
-        <button class="btn-primary" onclick="saveSettingsFromModal()">💾 ${t('save_changes')}</button>
-        ${(typeof isLoggedIn === 'function' && isLoggedIn()) ? `<button class="btn-secondary" style="margin-top:10px;width:100%" onclick="closeSettings();logout()">🚪 ${t('logout')}</button>` : ''}
-      </div>
-    </div>`;
+  overlay.innerHTML = '' +
+    '<div class="modal post-modal">' +
+      '<div class="modal-header">' +
+        '<h3>⚙️ ' + _L('settings_title', 'הגדרות') + '</h3>' +
+        '<button class="modal-close" onclick="closeSettings()">✕</button>' +
+      '</div>' +
+      '<div class="modal-body">' +
+        '<div class="form-group" style="text-align:center">' +
+          '<img id="set-avatar-preview" src="' + curAvatar + '" alt="" style="width:84px;height:84px;border-radius:50%;background:var(--bg-secondary)"/>' +
+          '<div><button type="button" class="btn-secondary" style="margin-top:8px" onclick="shuffleAvatar()">🎲 ' + _L('avatar_shuffle', 'החלף תמונה') + '</button></div>' +
+        '</div>' +
+        '<div class="form-group"><label>' + _L('field_display_name', 'השם שלי') + '</label>' +
+          '<input type="text" id="set-name" value="' + esc(s.name) + '" placeholder="' + _L('field_name_ph', 'איך יקראו לך') + '" /></div>' +
+        '<div class="form-group"><label>' + _L('field_bio', 'תיאור קצר') + '</label>' +
+          '<textarea id="set-bio" rows="2" placeholder="' + _L('field_bio_ph', 'כמה מילים על עצמך') + '">' + esc(s.bio) + '</textarea></div>' +
+        '<div class="form-group"><label>' + _L('field_my_cities', 'הערים שלי') + '</label>' +
+          '<input type="text" id="set-cities" value="' + esc(s.cities.join(', ')) + '" placeholder="כרמיאל, חיפה, עכו" />' +
+          '<button type="button" class="btn-secondary" style="margin-top:8px;width:100%" onclick="detectLocation()">📍 ' + _L('geo_detect', 'זהה את המיקום שלי') + '</button>' +
+          '<div style="color:var(--text-secondary);font-size:0.8rem;margin-top:6px">אפשר כמה ערים, הפרד בפסיקים. תקבל התראות מכולן. GPS מוסיף את העיר הקרובה.</div></div>' +
+        '<div class="form-group"><label>' + _L('field_my_areas', 'שכונות / אזורים שלי') + '</label>' +
+          '<input type="text" id="set-areas" value="' + esc(s.areas.join(', ')) + '" placeholder="מרכז העיר, רמת רבין" />' +
+          '<div style="color:var(--text-secondary);font-size:0.8rem;margin-top:6px">הפרד בפסיקים.</div></div>' +
+        '<div class="form-group"><label style="display:flex;align-items:center;gap:10px;cursor:pointer">' +
+          '<input type="checkbox" id="set-only-area" ' + (s.onlyMyArea ? 'checked' : '') + ' />' +
+          '<span>' + _L('notif_only_area', 'התראות רק מהאזור שלי') + '</span></label></div>' +
+        '<button class="btn-primary" onclick="saveSettingsFromModal()">💾 ' + _L('save_changes', 'שמור שינויים') + '</button>' +
+        ((typeof isLoggedIn === 'function' && isLoggedIn()) ? '<button class="btn-secondary" style="margin-top:10px;width:100%" onclick="closeSettings();logout()">🚪 ' + _L('logout', 'התנתק') + '</button>' : '') +
+      '</div>' +
+    '</div>';
   document.body.appendChild(overlay);
   document.body.style.overflow = 'hidden';
 }
@@ -192,7 +176,7 @@ function saveSettingsFromModal() {
   applyIdentity();
   try { renderFeed(); renderChatList(); updateProfileStats(); } catch (e) {}
   closeSettings();
-  showToast('✅ ' + t('settings_saved'));
+  showToast('✅ ' + _L('settings_saved', 'ההגדרות נשמרו!'));
 }
 
 document.addEventListener('DOMContentLoaded', applyIdentity);

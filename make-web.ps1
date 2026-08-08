@@ -1,4 +1,4 @@
-# make-web.ps1 — assembles a clean web/ folder for deployment (drag-and-drop)
+﻿# make-web.ps1 — assembles a clean web/ folder for deployment (drag-and-drop)
 # Usage:  cd C:\dev\pagia-baair ; .\make-web.ps1
 # Output: web\  — contains ONLY the files a browser needs (no Electron, no docs, no node_modules)
 
@@ -8,10 +8,12 @@ $web  = Join-Path $root "web"
 if (Test-Path $web) { Remove-Item $web -Recurse -Force }
 New-Item -ItemType Directory -Path $web | Out-Null
 
+# netlify.toml is intentionally absent: it lives at the repo root (publish = "web").
+# Copying it in here would make a drag-and-drop deploy of web/ look for web/web.
 $files = @(
   "index.html","style.css",
   "config.js","i18n.js","app.js","feed-extras.js","settings.js","auth.js","backend.js",
-  "manifest.json","robots.txt","netlify.toml"
+  "manifest.json","robots.txt"
 )
 foreach ($f in $files) {
   if (Test-Path (Join-Path $root $f)) { Copy-Item (Join-Path $root $f) $web }

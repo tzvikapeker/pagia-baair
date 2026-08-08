@@ -13,6 +13,10 @@ cd C:\dev\pagia-baair
 ```
 נוצרת תיקיית `web\` שמכילה רק את מה שהדפדפן צריך (בלי Electron, בלי מסמכים, בלי node_modules).
 
+> **לפני כל פרסום — העלה את מספר הגרסה בכתובות הנכסים.** ב-`index.html` כל
+> `<script>`/`<link>` מקומי נגמר ב-`?v=r29`. בלי העלאה, דפדפן של משתמש חוזר
+> עלול לטעון JS ישן מול CSS חדש. `node sync-agent.cjs` נכשל אם הגרסאות לא אחידות.
+
 ---
 
 ## מסלול A — הכי פשוט (2 דקות, בלי חשבון, בלי git)
@@ -40,8 +44,10 @@ git commit -m "pagia-baair"
 ```
 1. פתח repo ב-GitHub והעלה אליו (`git remote add origin ...` → `git push`).
 2. ב-Netlify → **Add new site → Import from Git** → בחר את ה-repo.
-3. Build command: השאר ריק. Publish directory: `.`
-4. מכאן: כל `git push` מפרסם אוטומטית את הגרסה החדשה.
+3. אין מה למלא — `netlify.toml` שבשורש כבר מגדיר `publish = "web"` (רק הבאנדל של הדפדפן,
+   בלי המסמכים, הסקריפטים ו-`supabase-schema.sql`).
+4. מכאן: כל `git push` מפרסם אוטומטית את הגרסה החדשה — **בתנאי שהרצת `.\make-web.ps1`
+   וקומיטת גם את `web/`.** `node sync-agent.cjs` נכשל אם שכחת.
 
 `.gitignore` כבר מגדיר ש-node_modules והגיבויים לא יעלו.
 
@@ -49,9 +55,10 @@ git commit -m "pagia-baair"
 
 ## Supabase — צריך משהו?
 
-**כרגע לא.** ה-publishable key בטוח לחשיפה וההגנה היא ב-RLS, וזה עובד מכל כתובת.
-כשנוסיף התחברות אמיתית (Auth) בעתיד — אז נצטרך להוסיף את כתובת האתר תחת
-Supabase → Authentication → URL Configuration. לא לפני.
+**לא.** ה-publishable key בטוח לחשיפה וההגנה היא ב-RLS, וזה עובד מכל כתובת.
+ההתחברות האמיתית כבר קיימת (R26), וה-Site URL כבר מוגדר תחת
+Supabase → Authentication → URL Configuration. אם תעבור לכתובת/דומיין חדש — עדכן אותו שם,
+אחרת ההתחברות תחזיר את המשתמש לכתובת הישנה. פרטים ב-AUTH_SETUP.md.
 
 ---
 
@@ -60,6 +67,7 @@ Supabase → Authentication → URL Configuration. לא לפני.
 - ⚙️ הגדרות → שם + זיהוי מיקום (עכשיו ה-GPS יעבוד טוב כי זה HTTPS).
 - מפרסמים מוצר בטלפון → קופץ מיד במחשב. זו רשת חיה. ✅
 
-## אבטחה לפני קהל גדול (השלב הבא, לא חוסם פרסום ראשוני)
-מחיקת/עריכת פוסט · דיווח/חסימה · rate-limiting · התחברות אמיתית.
+## אבטחה לפני קהל גדול
+כבר קיים: התחברות אמיתית + RLS בעלות (R26) · בריחת HTML לכל תוכן משתמש (R28).
+עוד חסר: דיווח/חסימה · rate-limiting · מודרציה של תמונות.
 מפורט ב-README (מה עוד לא קיים) וב-CHANGELOG.

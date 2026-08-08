@@ -2734,3 +2734,100 @@ body {
   .chat-layout.convo-open .chat-window { display: flex !important; }
   .chat-back-btn { display: inline-flex !important; }
 }
+/* =====================================================================
+   R29 — "נלקח / נמכר" state.
+   The flag existed since R11 but nothing rendered it; these are the styles
+   that make the button actually do something on screen.
+   ===================================================================== */
+/* .product-card carries `animation: cardIn .28s ease both`, and an animation
+   with fill-mode both keeps applying its end state (opacity:1) forever after
+   it finishes — it wins over any plain `opacity` declaration here. So the
+   dimming has to come from its own end keyframe, not a static rule. */
+.product-card.is-taken {
+  animation: cardInTaken .28s ease both;
+  filter: grayscale(0.6);
+}
+@keyframes cardInTaken {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 0.55; transform: none; }
+}
+.product-card.is-taken:hover {
+  transform: none !important;
+  box-shadow: 0 2px 16px rgba(0,0,0,0.15) !important;
+  border-color: rgba(255,255,255,0.06) !important;
+}
+.product-card.is-taken .card-footer .action-btn.chat-action,
+.product-card.is-taken .card-footer .action-btn[onclick*="openChatFromPost"] {
+  pointer-events: none;
+  opacity: 0.5;
+}
+.taken-ribbon {
+  position: absolute;
+  top: 12px;
+  inset-inline-end: 12px;
+  z-index: 3;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: rgba(0,0,0,0.72);
+  border: 1px solid rgba(255,255,255,0.18);
+  color: #fff;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+.taken-note {
+  width: 100%;
+  margin-top: 10px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  text-align: center;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.1);
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+/* R30 — demo-mode banner. Shown when there is no live backend, so the bundled
+   demo listings can't be mistaken for real ones. */
+.demo-banner {
+  position: fixed;
+  inset-inline: 12px;
+  bottom: 12px;
+  z-index: 9999;
+  margin-inline: auto;
+  max-width: 560px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: rgba(40,32,10,0.92);
+  border: 1px solid rgba(255,193,7,0.35);
+  color: #ffd75e;
+  font-size: 0.88rem;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: 0 8px 28px rgba(0,0,0,0.35);
+}
+.demo-banner-why {
+  color: rgba(255,215,94,0.6);
+  font-size: 0.78rem;
+  margin-inline-start: auto;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.demo-banner-close {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: 0.9rem;
+  opacity: 0.7;
+  padding: 2px 4px;
+}
+.demo-banner-close:hover { opacity: 1; }
+@media (max-width: 768px) { .demo-banner { bottom: 76px; } }
