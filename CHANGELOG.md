@@ -1,5 +1,14 @@
 ﻿# CHANGELOG - פגיה בעיר
 
+## R37 - 2026-08-09 — Scale: the three things that break first
+Verified first that the write paths actually work: three anonymous sessions published listings, liked, commented and held a private conversation against the live project — 22/22 checks passed, including that an outsider reading someone else’s chat gets zero rows. All test data removed afterwards.
+Then the parts that would not survive an audience:
+- **Like counts downloaded every like.** To show a number, the browser fetched every row — a post with 50,000 likes shipped 50,000 rows. Counts are now columns on the post, maintained by a database trigger; the only per-user query left is “which of these did I like”, bounded by the page size.
+- **Every comment on every post loaded with the feed.** Threads now load when opened. The card shows the trigger-maintained counter.
+- **Search only looked at the ~30 posts in memory.** With a real catalogue, searching for something that exists returned nothing. It now queries the database, backed by trigram indexes, and merges the answer with what is already on screen.
+- **Every open tab held a subscription to every insert in the table**, plus a slot in one global presence channel — including the tabs sitting in the background all day. Realtime is released while the tab is hidden and catches up with a single query on return. A listing from another city no longer pushes itself into your feed at all.
+Requires the R37 block in supabase-schema.sql. Without it the counters read zero and search still works, only unindexed.
+
 ## R36 - 2026-08-09 — Sweep across every page, and a regression I caused
 - **The bottom bar wrapped onto two rows between 641 and 900px.** R32 showed the bar for that range, but the 5-column grid rule lived inside the ≤640 query — so five items landed in a 4-column grid and "פרופיל" dropped to a second row. Measuring said the layout was fine; only rendering it at 900px showed the break. Fixed at the same breakpoint.
 - Swept all five pages (feed, explore, saved, chat, profile) against all four languages at phone width: zero overflowing elements across all twenty combinations, and the document direction correct in each.

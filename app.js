@@ -157,7 +157,14 @@ window.addEventListener('DOMContentLoaded', () => {
         const q = e.target.value.trim().toLowerCase();
         if (!q) { renderFeed(); return; }
         showPage('feed');
-        renderFeed(q);
+        renderFeed(q);                       // instant answer from what's loaded
+        // R37: then ask the database, which knows about everything else.
+        if (window.BACKEND && BACKEND.ready && typeof backendSearch === 'function') {
+          backendSearch(q).then(hits => {
+            if (!hits || e.target.value.trim().toLowerCase() !== q) return;
+            renderSearchResults(hits, q);
+          });
+        }
       }, 300);
     });
   }
@@ -237,6 +244,37 @@ function getPost(id, ft) {
   return ft === 'stock' ? stockPosts.find(p=>p.id===id) : pagiaPosts.find(p=>p.id===id);
 }
 
+// R37: comment threads load only when opened, so the card can't count the
+// array — it reads the trigger-maintained counter that came with the row.
+// Demo posts have no counter and fall back to the array they carry.
+// Renders whatever the database returned for a search, merged with anything
+// already in memory so a result you can see doesn't disappear and come back.
+function renderSearchResults(hits, query) {
+  const grid = document.getElementById('feed-grid');
+  if (!grid) return;
+  const seen = new Set();
+  const merged = [];
+  hits.forEach(h => {
+    const known = [...pagiaPosts, ...stockPosts].find(p => p.dbId && String(p.dbId) === String(h.dbId));
+    const post = known || h;
+    if (!known) (h.feedType === 'stock' ? stockPosts : pagiaPosts).push(h);
+    const k = postKey(post);
+    if (k && !seen.has(k)) { seen.add(k); merged.push(post); }
+  });
+  if (!merged.length) {
+    grid.innerHTML = `<div class="empty-state"><span>🔍</span><p>${t('empty_no_match')}</p><button class="btn-primary" onclick="renderFeed()">${t('empty_show_all')}</button></div>`;
+    return;
+  }
+  grid.innerHTML = merged.map(p => p.feedType === 'stock' ? buildStockCard(p) : buildPagiaCard(p)).join('');
+}
+window.renderSearchResults = renderSearchResults;
+
+function commentCountOf(post) {
+  if (post && typeof post.commentCount === 'number') return post.commentCount;
+  return (post && post.comments) ? post.comments.length : 0;
+}
+window.commentCountOf = commentCountOf;
+
 // Placeholder cards shaped like the real thing: avatar + two lines of header,
 // the 16:10 media block, a title, a line of body, and the action row.
 function skeletonCards(n) {
@@ -302,7 +340,7 @@ function buildPagiaCard(post) {
     </div>
     <div class="card-footer">
       <button class="action-btn${post.liked?' liked':''}" onclick="toggleLike(${post.id},'pagia')">${post.liked?'\u2764\uFE0F':'\uD83E\uDD0D'} <span id="lc-${post.id}">${post.likes}</span></button>
-      <button class="action-btn" onclick="toggleComments(${post.id},'pagia')">\uD83D\uDCAC ${post.comments.length}</button>
+      <button class="action-btn" onclick="toggleComments(${post.id},'pagia')">\uD83D\uDCAC ${commentCountOf(post)}</button>
       <button class="action-btn chat-action" onclick="openChatFromPost(${post.id},'pagia')">\u2709\uFE0F ${t('btn_chat')}</button>
       <button class="action-btn save-action" onclick="toggleSave(${post.id},'pagia')">${isSaved(post,'pagia')?'\uD83D\uDD16':'\uD83C\uDFF7\uFE0F'} ${t('btn_save')}</button>
     </div>
@@ -340,7 +378,7 @@ function buildStockCard(post) {
     </div>
     <div class="card-footer">
       <button class="action-btn${post.liked?' liked':''}" onclick="toggleLike(${post.id},'stock')">${post.liked?'\u2764\uFE0F':'\uD83E\uDD0D'} <span id="lc-${post.id}">${post.likes}</span></button>
-      <button class="action-btn" onclick="toggleComments(${post.id},'stock')">\uD83D\uDCAC ${post.comments.length}</button>
+      <button class="action-btn" onclick="toggleComments(${post.id},'stock')">\uD83D\uDCAC ${commentCountOf(post)}</button>
       <button class="action-btn" style="color:var(--accent3)" onclick="openChatFromPost(${post.id},'stock')">\u2709\uFE0F ${t('btn_chat_seller')}</button>
       <button class="action-btn save-action" onclick="toggleSave(${post.id},'stock')">${isSaved(post,'stock')?'\uD83D\uDD16':'\uD83C\uDFF7\uFE0F'}</button>
     </div>
@@ -361,8 +399,14 @@ function toggleComments(id, ft) {
   if (!post) return;
   post.showComments = !post.showComments;
   const sec = document.getElementById('comments-'+id);
-  if (post.showComments) { sec.style.display='block'; sec.innerHTML=buildComments(post,ft); setTimeout(()=>sec.querySelector('input')?.focus(),50); }
-  else sec.style.display='none';
+  if (!post.showComments) { sec.style.display='none'; return; }
+  sec.style.display='block';
+  sec.innerHTML=buildComments(post,ft);
+  setTimeout(()=>sec.querySelector('input')?.focus(),50);
+  // R37: fetch the thread on demand rather than with the feed
+  if (post.dbId && !post._commentsLoaded && typeof backendLoadComments === 'function') {
+    backendLoadComments(post).then(() => { if (post.showComments) refreshCommentUI(post, ft); });
+  }
 }
 
 function refreshCommentUI(post, ft) {
@@ -373,7 +417,7 @@ function refreshCommentUI(post, ft) {
     if (inp) inp.focus();
   }
   const btn = document.querySelector(`#post-${post.id} .card-footer .action-btn:nth-child(2)`);
-  if (btn) btn.textContent = `\uD83D\uDCAC ${post.comments.length}`;
+  if (btn) btn.textContent = `\uD83D\uDCAC ${commentCountOf(post)}`;
 }
 
 // R30: comments are written to the DB. They used to be pushed into an in-memory
@@ -389,6 +433,7 @@ function addComment(id, ft) {
   // Optimistic: show it immediately, reconcile with the server row after.
   const local = { user: ME, text, time: '\u05E2\u05DB\u05E9\u05D9\u05D5', _pending: true };
   post.comments.push(local);
+  if (typeof post.commentCount === 'number') post.commentCount++;
   refreshCommentUI(post, ft);
 
   if (post.dbId && typeof backendAddComment === 'function') {
@@ -396,7 +441,11 @@ function addComment(id, ft) {
       const i = post.comments.indexOf(local);
       if (i < 0) return;
       if (saved) post.comments[i] = saved;
-      else { post.comments.splice(i, 1); showToast('\u26A0\uFE0F ' + t('comment_failed')); }
+      else {
+        post.comments.splice(i, 1);
+        if (typeof post.commentCount === 'number') post.commentCount = Math.max(0, post.commentCount - 1);
+        showToast('\u26A0\uFE0F ' + t('comment_failed'));
+      }
       refreshCommentUI(post, ft);
     });
   }
