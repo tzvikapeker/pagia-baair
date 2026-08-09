@@ -14,3 +14,6 @@ Thumbs.db
 
 # Local tool state (launch.json is shared on purpose)
 .claude/settings.local.json
+
+# Imported agent toolkit — belongs to another project, not to this repo
+portable/

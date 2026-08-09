@@ -157,7 +157,14 @@ window.addEventListener('DOMContentLoaded', () => {
         const q = e.target.value.trim().toLowerCase();
         if (!q) { renderFeed(); return; }
         showPage('feed');
-        renderFeed(q);
+        renderFeed(q);                       // instant answer from what's loaded
+        // R37: then ask the database, which knows about everything else.
+        if (window.BACKEND && BACKEND.ready && typeof backendSearch === 'function') {
+          backendSearch(q).then(hits => {
+            if (!hits || e.target.value.trim().toLowerCase() !== q) return;
+            renderSearchResults(hits, q);
+          });
+        }
       }, 300);
     });
   }
@@ -215,6 +222,13 @@ function renderFeed(searchQuery, filterFn) {
     posts = posts.filter(filterFn);
   }
   if (!posts.length) {
+    // R35: while the first page is still in flight, show the shape of the feed.
+    // Declaring "nobody has posted yet" and then swapping in real content makes
+    // a working app look abandoned to anyone on a slow connection.
+    if (window.BACKEND && BACKEND.loading && !searchQuery && !filterFn) {
+      grid.innerHTML = skeletonCards(3);
+      return;
+    }
     // Distinguish "nothing matched your search/filter" from "nobody has posted
     // yet" \u2014 the second one is an invitation, not a dead end.
     const filtering = !!(searchQuery || filterFn);
@@ -230,6 +244,62 @@ function getPost(id, ft) {
   return ft === 'stock' ? stockPosts.find(p=>p.id===id) : pagiaPosts.find(p=>p.id===id);
 }
 
+// R37: comment threads load only when opened, so the card can't count the
+// array — it reads the trigger-maintained counter that came with the row.
+// Demo posts have no counter and fall back to the array they carry.
+// Renders whatever the database returned for a search, merged with anything
+// already in memory so a result you can see doesn't disappear and come back.
+function renderSearchResults(hits, query) {
+  const grid = document.getElementById('feed-grid');
+  if (!grid) return;
+  const seen = new Set();
+  const merged = [];
+  hits.forEach(h => {
+    const known = [...pagiaPosts, ...stockPosts].find(p => p.dbId && String(p.dbId) === String(h.dbId));
+    const post = known || h;
+    if (!known) (h.feedType === 'stock' ? stockPosts : pagiaPosts).push(h);
+    const k = postKey(post);
+    if (k && !seen.has(k)) { seen.add(k); merged.push(post); }
+  });
+  if (!merged.length) {
+    grid.innerHTML = `<div class="empty-state"><span>🔍</span><p>${t('empty_no_match')}</p><button class="btn-primary" onclick="renderFeed()">${t('empty_show_all')}</button></div>`;
+    return;
+  }
+  grid.innerHTML = merged.map(p => p.feedType === 'stock' ? buildStockCard(p) : buildPagiaCard(p)).join('');
+}
+window.renderSearchResults = renderSearchResults;
+
+function commentCountOf(post) {
+  if (post && typeof post.commentCount === 'number') return post.commentCount;
+  return (post && post.comments) ? post.comments.length : 0;
+}
+window.commentCountOf = commentCountOf;
+
+// Placeholder cards shaped like the real thing: avatar + two lines of header,
+// the 16:10 media block, a title, a line of body, and the action row.
+function skeletonCards(n) {
+  const one = `<article class="product-card skeleton-card" aria-hidden="true">
+    <div class="card-header">
+      <div class="sk sk-avatar"></div>
+      <div class="card-user-info" style="flex:1">
+        <div class="sk sk-line" style="width:38%"></div>
+        <div class="sk sk-line sk-sm" style="width:58%"></div>
+      </div>
+    </div>
+    <div class="sk sk-media"></div>
+    <div class="card-body">
+      <div class="sk sk-line" style="width:52%"></div>
+      <div class="sk sk-line sk-sm" style="width:86%"></div>
+      <div class="sk-badges"><span class="sk sk-pill"></span><span class="sk sk-pill"></span><span class="sk sk-pill"></span></div>
+    </div>
+    <div class="card-footer">
+      <span class="sk sk-btn"></span><span class="sk sk-btn"></span><span class="sk sk-btn"></span><span class="sk sk-btn"></span>
+    </div>
+  </article>`;
+  return one.repeat(Math.max(1, n || 3));
+}
+window.skeletonCards = skeletonCards;
+
 // R31 — bundled demo listings.
 // They exist so the app is alive with no backend. Once a real backend IS
 // connected they are hidden: a marketplace must not show invented products
@@ -238,7 +308,11 @@ function getPost(id, ft) {
 const SHOW_DEMO_WHEN_LIVE = false;
 function liveFiltered(arr) {
   if (SHOW_DEMO_WHEN_LIVE) return arr;
-  if (!(window.BACKEND && BACKEND.ready)) return arr;   // offline → demo is all we have
+  // `loading` counts as live: if a real backend is on its way, showing demo
+  // listings for a second and then yanking them away is a content flash. The
+  // feed shows skeletons for that moment instead. Only once we know there is
+  // no backend do the demo listings become the content.
+  if (!(window.BACKEND && (BACKEND.ready || BACKEND.loading))) return arr;
   return arr.filter(p => p.dbId);
 }
 window.liveFiltered = liveFiltered;
@@ -266,7 +340,7 @@ function buildPagiaCard(post) {
     </div>
     <div class="card-footer">
       <button class="action-btn${post.liked?' liked':''}" onclick="toggleLike(${post.id},'pagia')">${post.liked?'\u2764\uFE0F':'\uD83E\uDD0D'} <span id="lc-${post.id}">${post.likes}</span></button>
-      <button class="action-btn" onclick="toggleComments(${post.id},'pagia')">\uD83D\uDCAC ${post.comments.length}</button>
+      <button class="action-btn" onclick="toggleComments(${post.id},'pagia')">\uD83D\uDCAC ${commentCountOf(post)}</button>
       <button class="action-btn chat-action" onclick="openChatFromPost(${post.id},'pagia')">\u2709\uFE0F ${t('btn_chat')}</button>
       <button class="action-btn save-action" onclick="toggleSave(${post.id},'pagia')">${isSaved(post,'pagia')?'\uD83D\uDD16':'\uD83C\uDFF7\uFE0F'} ${t('btn_save')}</button>
     </div>
@@ -304,7 +378,7 @@ function buildStockCard(post) {
     </div>
     <div class="card-footer">
       <button class="action-btn${post.liked?' liked':''}" onclick="toggleLike(${post.id},'stock')">${post.liked?'\u2764\uFE0F':'\uD83E\uDD0D'} <span id="lc-${post.id}">${post.likes}</span></button>
-      <button class="action-btn" onclick="toggleComments(${post.id},'stock')">\uD83D\uDCAC ${post.comments.length}</button>
+      <button class="action-btn" onclick="toggleComments(${post.id},'stock')">\uD83D\uDCAC ${commentCountOf(post)}</button>
       <button class="action-btn" style="color:var(--accent3)" onclick="openChatFromPost(${post.id},'stock')">\u2709\uFE0F ${t('btn_chat_seller')}</button>
       <button class="action-btn save-action" onclick="toggleSave(${post.id},'stock')">${isSaved(post,'stock')?'\uD83D\uDD16':'\uD83C\uDFF7\uFE0F'}</button>
     </div>
@@ -325,8 +399,14 @@ function toggleComments(id, ft) {
   if (!post) return;
   post.showComments = !post.showComments;
   const sec = document.getElementById('comments-'+id);
-  if (post.showComments) { sec.style.display='block'; sec.innerHTML=buildComments(post,ft); setTimeout(()=>sec.querySelector('input')?.focus(),50); }
-  else sec.style.display='none';
+  if (!post.showComments) { sec.style.display='none'; return; }
+  sec.style.display='block';
+  sec.innerHTML=buildComments(post,ft);
+  setTimeout(()=>sec.querySelector('input')?.focus(),50);
+  // R37: fetch the thread on demand rather than with the feed
+  if (post.dbId && !post._commentsLoaded && typeof backendLoadComments === 'function') {
+    backendLoadComments(post).then(() => { if (post.showComments) refreshCommentUI(post, ft); });
+  }
 }
 
 function refreshCommentUI(post, ft) {
@@ -337,7 +417,7 @@ function refreshCommentUI(post, ft) {
     if (inp) inp.focus();
   }
   const btn = document.querySelector(`#post-${post.id} .card-footer .action-btn:nth-child(2)`);
-  if (btn) btn.textContent = `\uD83D\uDCAC ${post.comments.length}`;
+  if (btn) btn.textContent = `\uD83D\uDCAC ${commentCountOf(post)}`;
 }
 
 // R30: comments are written to the DB. They used to be pushed into an in-memory
@@ -353,6 +433,7 @@ function addComment(id, ft) {
   // Optimistic: show it immediately, reconcile with the server row after.
   const local = { user: ME, text, time: '\u05E2\u05DB\u05E9\u05D9\u05D5', _pending: true };
   post.comments.push(local);
+  if (typeof post.commentCount === 'number') post.commentCount++;
   refreshCommentUI(post, ft);
 
   if (post.dbId && typeof backendAddComment === 'function') {
@@ -360,7 +441,11 @@ function addComment(id, ft) {
       const i = post.comments.indexOf(local);
       if (i < 0) return;
       if (saved) post.comments[i] = saved;
-      else { post.comments.splice(i, 1); showToast('\u26A0\uFE0F ' + t('comment_failed')); }
+      else {
+        post.comments.splice(i, 1);
+        if (typeof post.commentCount === 'number') post.commentCount = Math.max(0, post.commentCount - 1);
+        showToast('\u26A0\uFE0F ' + t('comment_failed'));
+      }
       refreshCommentUI(post, ft);
     });
   }
@@ -594,6 +679,21 @@ function closePostModal(e) {
   document.body.style.overflow='';
 }
 
+// R34: the three composer buttons each promised something different —
+// "photo / video", "stock / sale", "pagia" — and all three called
+// openPostModal() with no argument, landing you in the identical default
+// state. Now each one takes you where its label says.
+function openComposer(mode) {
+  openPostModal();
+  if (mode === 'stock' || mode === 'pagia') {
+    try { selectPostType(mode); } catch (e) {}
+  } else if (mode === 'media') {
+    // let the modal paint before opening the file picker
+    setTimeout(() => { const i = document.getElementById('img-input'); if (i) i.click(); }, 150);
+  }
+}
+window.openComposer = openComposer;
+
 function selectPostType(type) {
   currentPostType=type;
   document.getElementById('ptype-pagia').classList.toggle('active', type==='pagia');
@@ -733,7 +833,23 @@ function chatStatus(cv) {
   return { online, label };
 }
 
+// R33: both chat badges were the literal string "2" in the HTML and nothing
+// ever updated them — they showed "2 unread" forever, including on a live app
+// with no conversations at all, and after you had read everything.
+function updateChatBadge() {
+  const unread = (typeof CONVERSATIONS !== 'undefined' ? CONVERSATIONS : [])
+    .reduce((n, c) => n + (Number(c.unread) || 0), 0);
+  ['chat-badge', 'bn-chat-badge'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = unread;
+    el.style.display = unread ? '' : 'none';
+  });
+}
+window.updateChatBadge = updateChatBadge;
+
 function renderChatList() {
+  updateChatBadge();
   const c=document.getElementById('chat-conversations'); if (!c) return;
   if (!CONVERSATIONS.length) {
     c.innerHTML=`<div class="chat-list-empty"><span style="font-size:2.4rem">💬</span><div class="chat-list-empty-title">${t('chat_empty_none')}</div><div class="chat-list-empty-hint">${t('chat_empty_hint')}</div><button class="btn-primary" style="margin-top:12px" onclick="showPage('feed')">${t('go_to_feed')}</button></div>`;
@@ -873,14 +989,19 @@ function openEditProfile(){ if (typeof openSettings === 'function') openSettings
 function renderExpirySoon() {
   const list=document.getElementById('expiry-soon-list'); if (!list) return;
   const soon=liveFiltered(pagiaPosts).filter(p=>!p.taken&&Math.ceil((p.expiry-today)/864e5)<=2).sort((a,b)=>a.expiry-b.expiry).slice(0,4);
-  if (!soon.length){list.innerHTML='<div style="color:var(--text-secondary);font-size:0.82rem">'+t('no_urgent')+'</div>';return;}
+  // R34: an empty widget is noise. Hide the whole box, don't announce nothing.
+  const box = list.closest('.widget');
+  if (box) box.style.display = soon.length ? '' : 'none';
+  if (!soon.length){list.innerHTML='';return;}
   list.innerHTML=soon.map(p=>{const d=Math.ceil((p.expiry-today)/864e5);return `<div class="expiry-item" onclick="openDetail(${Number(p.id)},'pagia')"><span class="expiry-emoji">${esc(p.emoji)}</span><div class="expiry-info"><div class="expiry-name">${esc(p.product)}</div><div class="expiry-time ${d<=0?'critical':''}">${d<=0?t('expiry_today'):t('expiry_left_short')}</div></div></div>`;}).join('');
 }
 
 function renderDealsWidget() {
   const list=document.getElementById('deals-list'); if (!list) return;
   const deals=liveFiltered(stockPosts).filter(p=>!p.taken&&p.discountPct>=50).slice(0,3);
-  if (!deals.length){list.innerHTML='<div style="color:var(--text-secondary);font-size:0.82rem">'+t('no_deals')+'</div>';return;}
+  const box = list.closest('.widget');
+  if (box) box.style.display = deals.length ? '' : 'none';
+  if (!deals.length){list.innerHTML='';return;}
   list.innerHTML=deals.map(p=>`<div class="deal-item" onclick="showPage('feed');switchFeed('stock',document.getElementById('tab-stock'));openDetail(${Number(p.id)},'stock')"><span class="deal-emoji">${esc(p.emoji)}</span><div class="deal-info"><div class="deal-name">${esc(p.product)}</div><div class="deal-discount">-${Number(p.discountPct)||0}% \u00B7 \u20AA${Number(p.salePrice)||0}</div><div class="deal-biz">${p.user.isBusiness?esc(p.user.bizName):t('badge_private')}</div></div></div>`).join('');
 }
 
@@ -1026,6 +1147,7 @@ document.addEventListener('DOMContentLoaded', () => {
   updateNotifBadge();
   startLiveActivity();
   setTimeout(renderCategoryCounts, 500);
+  setTimeout(() => { try { renderSidebarStats(); renderLeaderboard(); } catch (e) {} }, 500);
 }, { once: true });
 // =====================
 // SAVED ITEMS (R11 · persisted in R29)
@@ -1133,6 +1255,48 @@ function updateProfileStats() {
 // =====================
 // CATEGORY COUNTS (R7)
 // =====================
+// R33: the sidebar stats (127 / 48 / 12) and the "top savers" leaderboard —
+// three named people with scores — were hardcoded in index.html. On a live app
+// with an empty database that is invented social proof, presented as fact.
+// Both are now computed from real data, and hidden when there is none.
+function renderSidebarStats() {
+  const posts = [...liveFiltered(pagiaPosts), ...liveFiltered(stockPosts)];
+  const sellers = new Set(posts.map(p => p.user && p.user.id).filter(Boolean));
+  const businesses = new Set(posts.filter(p => p.user && p.user.isBusiness).map(p => p.user.id));
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+  set('stat-saved', savedIds.pagia.size + savedIds.stock.size);
+  set('stat-sellers', sellers.size);
+  set('stat-biz', businesses.size);
+
+  // Nothing real to show yet → hide the block rather than display three zeros.
+  const box = document.querySelector('.sidebar-stats');
+  if (box) box.style.display = posts.length ? '' : 'none';
+}
+
+function renderLeaderboard() {
+  const list = document.querySelector('.leaderboard-list');
+  const widget = document.querySelector('.leaderboard-widget');
+  if (!list || !widget) return;
+  const posts = [...liveFiltered(pagiaPosts), ...liveFiltered(stockPosts)];
+  const byUser = new Map();
+  posts.forEach(p => {
+    if (!p.user || !p.user.id) return;
+    const cur = byUser.get(p.user.id) || { user: p.user, n: 0 };
+    cur.n++; byUser.set(p.user.id, cur);
+  });
+  const top = [...byUser.values()].sort((a, b) => b.n - a.n).slice(0, 3);
+  if (!top.length) { widget.style.display = 'none'; return; }
+  widget.style.display = '';
+  const medal = ['gold', 'silver', 'bronze'];
+  list.innerHTML = top.map((e, i) => `<div class="lb-item">
+    <span class="lb-rank ${medal[i]}">${i + 1}</span>
+    <img src="${safeUrl(e.user.avatar)}" alt="${esc(e.user.name)}" class="lb-avatar"/>
+    <span class="lb-name">${esc(e.user.isBusiness ? (e.user.bizName || e.user.name) : e.user.name)}${e.user.isBusiness ? ' 🏢' : ''}</span>
+    <span class="lb-score">${e.n}</span></div>`).join('');
+}
+window.renderSidebarStats = renderSidebarStats;
+window.renderLeaderboard = renderLeaderboard;
+
 function renderCategoryCounts() {
   const catMap = {
     '\u05DE\u05D6\u05D5\u05DF':       'cat-food',
@@ -1167,6 +1331,8 @@ window.__rerenderDynamic = function () {
   try { renderExpirySoon(); } catch (e) {}
   try { renderDealsWidget(); } catch (e) {}
   try { renderCategoryCounts(); } catch (e) {}
+  try { renderSidebarStats(); } catch (e) {}
+  try { renderLeaderboard(); } catch (e) {}
   try { renderNotificationsPanel(); } catch (e) {}
   const savedPage = document.getElementById('page-saved');
   if (savedPage && savedPage.classList.contains('active')) { try { renderSaved('all'); } catch (e) {} }

@@ -56,7 +56,14 @@ for (const f of SCAN) {
     if (rx.test(txt)) errors.push(`שריד אסור ${rx} בקובץ ${f}`);
   }
 }
-if (exists('portable')) errors.push('תיקיית portable/ חזרה — מחק אותה (שריד MedAImind)');
+// portable/ is an agent toolkit belonging to another project. The rule exists
+// so it never lands in this repo — if it's gitignored that risk is handled and
+// having it on disk is the developer's business, so this drops to a warning.
+if (exists('portable')) {
+  const ignored = exists('.gitignore') && /^portable\/?\s*$/m.test(read('.gitignore'));
+  if (ignored) warns.push('תיקיית portable/ קיימת בדיסק (ב-.gitignore, לא תיכנס לריפו)');
+  else errors.push('תיקיית portable/ חזרה ואינה ב-.gitignore — היא תיכנס לריפו');
+}
 if (!errors.some(e => e.includes('שריד'))) oks.push('אפס שאריות MedAImind / נתיבים אבסולוטיים');
 
 /* 4 — i18n coverage */

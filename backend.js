@@ -9,6 +9,10 @@
 
 const BACKEND = { client: null, ready: false, pageSize: 30, loaded: 0, exhausted: false, realCount: { pagia: 0, stock: 0 } };
 window.BACKEND = BACKEND;
+// R35: set synchronously at load, before the first render — otherwise the feed
+// paints "nobody has posted yet" for a second and then swaps in real posts,
+// which reads as an empty app to anyone with a slow connection.
+BACKEND.loading = (typeof SUPABASE_URL === 'string' && SUPABASE_URL.startsWith('https://') && !SUPABASE_URL.includes('YOUR-'));
 const CLIENT_ID = (() => {
   try {
     let v = localStorage.getItem('pagia_client_id');
@@ -57,7 +61,10 @@ function rowToPost(r) {
     desc: r.description || r.product, location: r.location || '',
     tags: Array.isArray(r.tags) ? r.tags : [],
     taken: !!r.taken,
-    likes: 0, liked: false, saved: false,
+    // R37: counts arrive with the row, maintained by a trigger
+    likes: Number(r.likes_count) || 0,
+    commentCount: Number(r.comments_count) || 0,
+    liked: false, saved: false,
     time: new Date(r.created_at).toLocaleString('he-IL', { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' }),
     comments: [], showComments: false,
   };
@@ -147,6 +154,9 @@ publishPost = function () {
 // was unreachable the app looked completely normal — full of demo listings that
 // a visitor would take for real ones. Now it says so on screen.
 function showDemoBanner(reason) {
+  // whatever the reason, we are no longer waiting for the server
+  BACKEND.loading = false;
+  try { renderFeed(); } catch (e) {}
   if (document.getElementById('demo-banner')) return;
   const bar = document.createElement('div');
   bar.id = 'demo-banner';
@@ -185,6 +195,15 @@ async function backendInit() {
       .range(0, BACKEND.pageSize - 1);
     if (error) { console.error('[backend] load failed:', error.message); showDemoBanner(error.message); return; }
     BACKEND.ready = true;
+    BACKEND.loading = false;
+    // R33: the app ships with demo notifications and demo conversations so the
+    // offline build feels populated. On a live backend they are fiction — a
+    // first-time visitor was shown "2 unread" and messages from people who
+    // don't exist. Real ones arrive from the DB and over realtime.
+    try {
+      if (typeof NOTIFICATIONS !== 'undefined') { NOTIFICATIONS.length = 0; updateNotifBadge(); renderNotificationsPanel(); }
+      if (typeof CONVERSATIONS !== 'undefined') { CONVERSATIONS.length = 0; renderChatList(); }
+    } catch (e) {}
     BACKEND.loaded = data.length;
     BACKEND.exhausted = data.length < BACKEND.pageSize;
     console.log(`[backend] connected — ${data.length} posts loaded from DB`);
@@ -197,17 +216,22 @@ async function backendInit() {
     BACKEND.realCount.pagia = pag.length;
     BACKEND.realCount.stock = stk.length;
     renderFeed(); renderExpirySoon(); renderDealsWidget();
-    try { updateProfileStats(); } catch (e) {}
+    try { updateProfileStats(); renderSidebarStats(); renderLeaderboard(); } catch (e) {}
     backendHydrateSocial(pag.concat(stk)).then(() => renderFeed());
 
     // Live updates: new posts from OTHER users appear instantly.
     // Notification fires ONLY if the post location matches the user's
     // city/areas settings (settings.js: notifAllowsLocation).
-    BACKEND.client
+    BACKEND.feedChannel = BACKEND.client
       .channel('posts-feed')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'posts' }, payload => {
         if (payload.new.client_id === CLIENT_ID) return; // our own echo
         const p = rowToPost(payload.new);
+        // R37: a listing three cities away should not push itself into your
+        // feed. Only what matches your settings gets inserted live; everything
+        // else is simply skipped, which is also what keeps the fan-out sane.
+        const relevant = (typeof notifAllowsLocation === 'function') ? notifAllowsLocation(p.location) : true;
+        if (!relevant) return;
         (p.feedType === 'stock' ? stockPosts : pagiaPosts).unshift(p);
         BACKEND.realCount[p.feedType === 'stock' ? 'stock' : 'pagia']++;
         BACKEND.loaded++;
@@ -298,7 +322,26 @@ async function backendInit() {
       .subscribe();
 
     // ---- REAL ONLINE PRESENCE ----
-    const presence = BACKEND.client.channel('presence-online', { config: { presence: { key: CLIENT_ID } } });
+    // R37: every open tab held a live subscription to every insert in the
+    // table and a slot in one global presence channel — including the tabs
+    // sitting in the background all day, which is most of them. Realtime work
+    // now stops while the tab is hidden and picks up again on return.
+    document.addEventListener('visibilitychange', () => {
+      const hidden = document.visibilityState === 'hidden';
+      try {
+        if (hidden) {
+          if (BACKEND.feedChannel) { BACKEND.client.removeChannel(BACKEND.feedChannel); BACKEND.feedChannel = null; }
+          if (BACKEND.presence) { BACKEND.client.removeChannel(BACKEND.presence); BACKEND.presence = null; }
+          BACKEND.paused = true;
+        } else if (BACKEND.paused) {
+          BACKEND.paused = false;
+          // catch up on whatever arrived while we were away, in one query
+          backendRefreshLatest();
+        }
+      } catch (e) { console.warn('[backend] visibility handling:', e.message || e); }
+    });
+
+    const presence = BACKEND.presence = BACKEND.client.channel('presence-online', { config: { presence: { key: CLIENT_ID } } });
     presence.on('presence', { event: 'sync' }, () => {
       const state = presence.presenceState();
       ONLINE.clear();
@@ -347,35 +390,36 @@ async function backendInit() {
 // =====================================================================
 
 // Pull likes + comments for the posts currently loaded, and merge them in.
+// R37: counts come from the post row itself (maintained by a DB trigger), not
+// from downloading every like. Fetching all like rows to produce a number meant
+// a post with 50,000 likes shipped 50,000 rows to the browser.
+// The only per-user query left is "which of these did I like", which is bounded
+// by the page size, and comments are fetched lazily when a thread is opened.
 async function backendHydrateSocial(posts) {
   const real = posts.filter(p => p.dbId);
   if (!BACKEND.ready || !real.length) return;
   const ids = real.map(p => p.dbId);
   const byId = new Map(real.map(p => [String(p.dbId), p]));
   try {
-    const [likes, comments] = await Promise.all([
-      BACKEND.client.from('post_likes').select('post_id,user_id').in('post_id', ids),
-      BACKEND.client.from('post_comments').select('*').in('post_id', ids).order('created_at', { ascending: true }),
-    ]);
-    if (likes.error) { console.warn('[backend] likes unavailable (run the R30 schema block):', likes.error.message); }
-    else {
-      real.forEach(p => { p.likes = 0; p.liked = false; });
-      likes.data.forEach(row => {
-        const p = byId.get(String(row.post_id)); if (!p) return;
-        p.likes++;
-        if (ME.uid && row.user_id === ME.uid) p.liked = true;
-      });
-    }
-    if (comments.error) { console.warn('[backend] comments unavailable (run the R30 schema block):', comments.error.message); }
-    else {
-      real.forEach(p => { p.comments = []; });
-      comments.data.forEach(row => {
-        const p = byId.get(String(row.post_id)); if (!p) return;
-        p.comments.push(commentRow(row));
-      });
-    }
+    real.forEach(p => { p.liked = false; });
+    if (!ME.uid) return;                       // logged out → nothing else to know
+    const mine = await BACKEND.client.from('post_likes').select('post_id').in('post_id', ids).eq('user_id', ME.uid);
+    if (mine.error) { console.warn('[backend] likes unavailable (run the R30 schema block):', mine.error.message); return; }
+    mine.data.forEach(row => { const p = byId.get(String(row.post_id)); if (p) p.liked = true; });
   } catch (e) { console.warn('[backend] social hydrate failed:', e.message || e); }
 }
+
+// Comments load when a thread is actually opened — a feed of 30 posts should
+// not download every comment on every one of them up front.
+window.backendLoadComments = async function (post) {
+  if (!BACKEND.ready || !post.dbId || post._commentsLoaded) return;
+  try {
+    const r = await BACKEND.client.from('post_comments').select('*').eq('post_id', post.dbId).order('created_at', { ascending: true }).limit(100);
+    if (r.error) { console.warn('[backend] comments load failed:', r.error.message); return; }
+    post.comments = r.data.map(commentRow);
+    post._commentsLoaded = true;
+  } catch (e) { console.warn('[backend] comments load error:', e.message || e); }
+};
 
 function commentRow(row) {
   return {
@@ -414,6 +458,54 @@ window.backendAddComment = function (post, text) {
       if (error) { console.warn('[backend] comment failed:', error.message); return null; }
       return commentRow(data);
     });
+};
+
+// One cheap query on return, instead of a live subscription held open the
+// whole time the tab was in the background.
+async function backendRefreshLatest() {
+  if (!BACKEND.ready) return;
+  try {
+    const { data, error } = await BACKEND.client
+      .from('posts').select('*')
+      .order('created_at', { ascending: false })
+      .limit(BACKEND.pageSize);
+    if (error || !data) return;
+    const known = new Set([...pagiaPosts, ...stockPosts].filter(p => p.dbId).map(p => String(p.dbId)));
+    const fresh = data.filter(r => !known.has(String(r.id))).map(rowToPost)
+      .filter(p => (typeof notifAllowsLocation === 'function') ? notifAllowsLocation(p.location) : true);
+    if (!fresh.length) return;
+    fresh.reverse().forEach(p => {
+      (p.feedType === 'stock' ? stockPosts : pagiaPosts).unshift(p);
+      BACKEND.realCount[p.feedType === 'stock' ? 'stock' : 'pagia']++;
+      BACKEND.loaded++;
+    });
+    renderFeed(); renderExpirySoon(); renderDealsWidget();
+    console.log(`[backend] caught up — ${fresh.length} new`);
+  } catch (e) { console.warn('[backend] catch-up failed:', e.message || e); }
+}
+window.backendRefreshLatest = backendRefreshLatest;
+
+// R37: search the database, not the page you happen to have loaded.
+// Client-side filtering only ever looked at the ~30 posts in memory, so with a
+// large catalogue a search for something real returned nothing. Backed by the
+// trigram indexes in the R37 schema block, so it stays fast as rows pile up.
+let _searchSeq = 0;
+window.backendSearch = async function (query) {
+  if (!BACKEND.ready) return null;
+  const q = String(query || '').trim();
+  if (q.length < 2) return null;
+  const seq = ++_searchSeq;
+  const pattern = '%' + q.replace(/[%_,]/g, ' ') + '%';
+  try {
+    const { data, error } = await BACKEND.client
+      .from('posts').select('*')
+      .or(`product.ilike.${pattern},description.ilike.${pattern},location.ilike.${pattern},user_name.ilike.${pattern}`)
+      .order('created_at', { ascending: false })
+      .limit(50);
+    if (seq !== _searchSeq) return null;        // a newer keystroke already won
+    if (error) { console.warn('[backend] search failed:', error.message); return null; }
+    return data.map(rowToPost);
+  } catch (e) { console.warn('[backend] search error:', e.message || e); return null; }
 };
 
 // ---- Feed pagination: the next page of REAL posts ----

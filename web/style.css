@@ -2831,3 +2831,173 @@ body {
 }
 .demo-banner-close:hover { opacity: 1; }
 @media (max-width: 768px) { .demo-banner { bottom: 76px; } }
+
+/* =====================================================================
+   R32 — mobile top bar.
+   The language <select> sizes itself to its longest option (~184px on a
+   375px screen), which pushed the notifications button and the avatar
+   clean off the left edge in RTL — they were rendered at negative x and
+   were unreachable on a phone. Constrain it and tighten the spacing.
+   ===================================================================== */
+@media (max-width: 768px) {
+  .top-nav { padding: 0 12px; gap: 10px; }
+  .nav-actions { gap: 8px; min-width: 0; }
+  .lang-switcher {
+    max-width: 92px;
+    min-width: 0;
+    flex: 0 1 auto;
+    text-overflow: ellipsis;
+  }
+  .auth-btn {
+    max-width: 104px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+@media (max-width: 380px) {
+  .lang-switcher { max-width: 74px; }
+  .auth-btn { max-width: 84px; }
+}
+
+/* R32 — touch targets on phones.
+   The card actions (like / comment / chat / save) were 78x31. Four of them
+   sit shoulder to shoulder, and one opens a conversation with a seller —
+   a missed tap is not harmless. Apple asks for 44px, Material for 48px. */
+@media (max-width: 768px) {
+  .product-card .action-btn {
+    min-height: 44px;
+    padding-top: 8px;
+    padding-bottom: 8px;
+  }
+  .comment-send-btn,
+  .chat-attach-btn {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
+
+/* =====================================================================
+   R32 — the 641–900px navigation dead zone.
+   Three breakpoints disagreed with each other:
+     640  bottom nav appears
+     768  one-pane chat kicks in (R20)
+     900  desktop sidebar disappears
+   Between 641 and 900 the sidebar was already gone but the bottom bar had
+   not arrived — no navigation at all, on iPad portrait, on any phone in
+   landscape, and in a half-screen browser window. In 769–900 the chat
+   conversation list was hidden too, which is the exact bug R20 set out to
+   fix. Everything is now aligned to 900: wherever the sidebar is absent,
+   the bottom bar and the one-pane chat take over.
+   ===================================================================== */
+@media (max-width: 900px) {
+  .bottom-nav { display: block; }
+  /* the 5-column rule lived inside the 640 query; showing the bar up to 900
+     without it left five items in a 4-column grid, wrapping "profile" onto
+     a second row. */
+  .bottom-nav-inner { grid-template-columns: repeat(5, 1fr); }
+  .main-layout { padding-bottom: 80px; }
+
+  .chat-layout { grid-template-columns: 1fr !important; }
+  .chat-list { display: block !important; }
+  .chat-window { display: none !important; }
+  .chat-layout.convo-open .chat-list { display: none !important; }
+  .chat-layout.convo-open .chat-window { display: flex !important; }
+  .chat-back-btn { display: inline-flex !important; }
+}
+
+/* Touch targets follow the input device, not the window width — a phone in
+   landscape is 800px wide and still operated with a thumb. */
+@media (pointer: coarse) {
+  .product-card .action-btn { min-height: 44px; padding-top: 8px; padding-bottom: 8px; }
+  .comment-send-btn, .chat-attach-btn { min-width: 44px; min-height: 44px; }
+  .bottom-nav-btn { min-height: 48px; }
+  .auth-btn { min-height: 40px; }
+  .composer-btn { min-height: 44px; }
+  .filter-tab { min-height: 40px; }
+}
+
+/* R33 — the login button was collapsing to "🔑 …".
+   It sits in a flex row with default flex-shrink:1 and no min-width, so the
+   language <select> pushed it down to 54px while its label needs 86px. On a
+   1280px screen the primary call to action for a new visitor was unreadable. */
+.auth-btn { flex: 0 0 auto; min-width: max-content; }
+@media (max-width: 768px) {
+  /* on a phone it may shrink, but only down to something still legible */
+  .auth-btn { flex: 0 1 auto; min-width: 0; max-width: 104px; }
+}
+
+/* =====================================================================
+   R34 — density and rhythm.
+   Measured on a 1280x900 screen: the first product card began at y=492.
+   More than half the viewport was chrome before any content — the composer
+   (139px) and the feed switcher (141px, two large cards with descriptions)
+   stacked above a filter row. A social feed has to show the feed.
+   ===================================================================== */
+
+/* The feed switcher becomes a compact segmented control. The descriptions
+   ("מוצרים שעומדים לפוג" / "עודפי סטוק במחיר") explain the product once —
+   they don't need to sit above every scroll. */
+.feed-switcher { gap: 8px; padding: 6px; margin-bottom: 14px; }
+.feed-tab { flex-direction: row; align-items: center; justify-content: center; gap: 8px; padding: 11px 14px; }
+.feed-tab-desc { display: none; }
+.feed-tab-icon { font-size: 1.2rem; }
+.feed-tab-label { font-size: 0.95rem; }
+
+.composer { padding: 11px 14px; }
+
+/* One consistent card shape. Media was capped at 400px and free to take any
+   aspect, so a tall illustration filled the viewport on its own. */
+.card-image {
+  aspect-ratio: 16 / 10;
+  height: auto;
+  max-height: 320px;
+  object-fit: cover;
+}
+.card-image-placeholder { aspect-ratio: 16 / 10; height: auto; min-height: 0; }
+video.card-image { background: #000; }
+
+/* The four card actions were 156px wide each — stretched bars with a wide gap
+   between icon and label. Sized to their content, spread evenly instead. */
+.card-footer { justify-content: space-between; gap: 6px; padding: 10px 14px 12px; }
+.action-btn { flex: 0 1 auto; padding: 8px 12px; white-space: nowrap; }
+
+/* =====================================================================
+   R35 — loading states.
+   Skeletons stand in for the feed while the first page is in flight, so a
+   slow connection sees the shape of content instead of "nobody has posted
+   yet" followed by a sudden swap.
+   ===================================================================== */
+.skeleton-card { pointer-events: none; animation: none; opacity: 1; }
+.sk {
+  position: relative;
+  overflow: hidden;
+  border-radius: 8px;
+  background: rgba(255,255,255,0.05);
+}
+.sk::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.07), transparent);
+  animation: sk-sweep 1.4s ease-in-out infinite;
+}
+@keyframes sk-sweep { to { transform: translateX(100%); } }
+.sk-avatar { width: 42px; height: 42px; border-radius: 50%; flex-shrink: 0; }
+.sk-line { height: 12px; margin: 7px 0; }
+.sk-line.sk-sm { height: 10px; opacity: 0.7; }
+.sk-media { width: 100%; aspect-ratio: 16 / 10; max-height: 320px; border-radius: 0; }
+.sk-badges { display: flex; gap: 8px; margin-top: 12px; }
+.sk-pill { width: 68px; height: 24px; border-radius: 999px; }
+.sk-btn { width: 70px; height: 30px; border-radius: 10px; }
+@media (prefers-reduced-motion: reduce) {
+  .sk::after { animation: none; }
+}
+
+/* R35 — a button that is waiting on the network says so, and refuses repeats. */
+.is-busy, button:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+  filter: saturate(0.7);
+}

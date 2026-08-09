@@ -1,5 +1,56 @@
 ﻿# CHANGELOG - פגיה בעיר
 
+## R37 - 2026-08-09 — Scale: the three things that break first
+Verified first that the write paths actually work: three anonymous sessions published listings, liked, commented and held a private conversation against the live project — 22/22 checks passed, including that an outsider reading someone else’s chat gets zero rows. All test data removed afterwards.
+Then the parts that would not survive an audience:
+- **Like counts downloaded every like.** To show a number, the browser fetched every row — a post with 50,000 likes shipped 50,000 rows. Counts are now columns on the post, maintained by a database trigger; the only per-user query left is “which of these did I like”, bounded by the page size.
+- **Every comment on every post loaded with the feed.** Threads now load when opened. The card shows the trigger-maintained counter.
+- **Search only looked at the ~30 posts in memory.** With a real catalogue, searching for something that exists returned nothing. It now queries the database, backed by trigram indexes, and merges the answer with what is already on screen.
+- **Every open tab held a subscription to every insert in the table**, plus a slot in one global presence channel — including the tabs sitting in the background all day. Realtime is released while the tab is hidden and catches up with a single query on return. A listing from another city no longer pushes itself into your feed at all.
+Requires the R37 block in supabase-schema.sql. Without it the counters read zero and search still works, only unindexed.
+
+## R36 - 2026-08-09 — Sweep across every page, and a regression I caused
+- **The bottom bar wrapped onto two rows between 641 and 900px.** R32 showed the bar for that range, but the 5-column grid rule lived inside the ≤640 query — so five items landed in a 4-column grid and "פרופיל" dropped to a second row. Measuring said the layout was fine; only rendering it at 900px showed the break. Fixed at the same breakpoint.
+- Swept all five pages (feed, explore, saved, chat, profile) against all four languages at phone width: zero overflowing elements across all twenty combinations, and the document direction correct in each.
+- Remaining small touch targets raised on coarse pointers: the login button (33px) and the composer buttons (36px).
+- sync-agent: the `portable/` rule now separates "sitting on disk" from "about to enter the repo" — a warning when it is gitignored, an error when it is not. The rule exists to keep another project's toolkit out of this repo, and .gitignore already achieves that.
+
+## R35 - 2026-08-08 — Loading states
+- **The feed lied while it was loading.** Until the first page arrived the app showed the bundled demo listings, then yanked them away and replaced them with real ones — a content flash. And once demo listings were hidden, the gap said "nobody has posted yet", so a slow connection made a working app look abandoned before the data landed. The feed now shows skeleton cards shaped like the real thing (avatar, two header lines, the 16:10 media block, title, body, action row) for exactly that window. `BACKEND.loading` is set synchronously when backend.js loads, before the first paint, so there is no flash at any point.
+- Demo listings are treated as content only once we know there is no backend — not while one is still on its way.
+- Searching or filtering during load shows the "no match" state, never skeletons: you asked a question, you get an answer.
+- **Sign-in and sign-up buttons show they are working** and refuse repeat presses while a request is in flight. Previously the button looked dead and a second press fired a second request.
+- Verified across all four states: loading (3 skeletons, shimmer running, zero demo cards), loaded-and-empty (the invitation), no-backend (5 demo cards, no skeletons), and searching-while-loading.
+- Respects `prefers-reduced-motion` — the shimmer stops for anyone who asked for less movement.
+
+## R34 - 2026-08-08 — UI: density, and buttons that keep their promise
+The social-feed structure is deliberate and stays. What made it read as unfinished was rhythm and follow-through, measured on a 1280×900 screen:
+- **The first product card began at y=492.** More than half the viewport was chrome before any content: a 139px composer, then a 141px feed switcher built from two large cards each carrying a description, then a filter row. The switcher is now a compact segmented control (67px) — the descriptions explain the product once, they don't belong above every scroll. First card now starts at ~400px.
+- **Card media had no fixed shape.** `max-height: 400px` with a free aspect ratio meant one listing could fill the screen on its own. Now a consistent 16:10, capped at 320px, so the feed has a rhythm instead of a random one.
+- **The four card actions were 156px wide each** — stretched bars with a gulf between icon and label. Sized to their content and spread evenly.
+- **The three composer buttons all did the same thing.** "תמונה / וידאו", "סטוק / מכירה" and "פגיה" each called `openPostModal()` with no argument, landing you in the identical default state. Each now takes you where its label says: straight to the file picker, to the stock form, or to the pagia form. Verified: the stock button opens with the sale-price fields shown and expiry hidden, the pagia button the reverse.
+- **Empty sidebar widgets announced their emptiness.** "אין מוצרים דחופים" / "אין דילים" in bordered boxes is noise; the widgets now hide themselves, which is also what the stats and leaderboard do since R33.
+
+## R33 - 2026-08-08 — What the app actually looked like
+First pass done by rendering the app and looking at it, rather than querying the DOM. Four things were visible immediately that no amount of measuring had caught:
+- **Invented platform statistics.** "127 מוצרים נשמרו · 48 משתמשים קרובים · 12 עסקים פעילים" were literals in index.html, shown to every visitor against an empty database. They are now computed — your saved count, distinct posters, distinct businesses — and the block hides itself when there is nothing real to report.
+- **An invented leaderboard.** "שומרי הסביבה" listed three named people with scores, hardcoded. It now ranks real posters by how much they've shared, and hides when there is no one.
+- **Fabricated notifications and conversations.** The bundled demo data meant a first-time visitor on a live app saw "2 unread" and messages from people who don't exist. Cleared once a backend connects; the demo build keeps them.
+- **Both chat badges were the literal string "2"** and nothing ever updated them — permanently "2 unread", including after reading everything. Now driven by the real unread count and hidden at zero.
+- **The login button collapsed to "🔑 …"** on a 1280px screen: it sits in a flex row with no min-width, so the language switcher squeezed it to 54px against a label needing 86px. The primary call to action for a new visitor was unreadable.
+
+Note for whoever renders this next: headless Chrome on Windows cannot lay out below ~500px — it silently uses a wider viewport and crops the image, which looks exactly like an overflow bug. Trust the measured layout, not that screenshot.
+
+## R32 - 2026-08-08 — Mobile: no navigation at all between 641 and 900px
+- **The app had no navigation on iPad portrait, on any phone in landscape, and in a half-screen window.** Three breakpoints disagreed: the bottom bar appeared only at ≤640, the one-pane chat at ≤768, and the desktop sidebar disappeared at ≤900. Between 641 and 900 the sidebar was already gone and the bottom bar had not arrived — you were stranded on whichever page you were on, with no way to reach feed, chat, saved or profile. In 769–900 the chat conversation list was hidden as well, which is precisely the bug R20 was written to fix. All three are now aligned to 900: wherever the sidebar is absent, the bottom bar and the one-pane chat take over.
+- **Touch targets.** The card actions (like / comment / chat / save) were 78×31 — four of them shoulder to shoulder, one of which opens a conversation with a seller. Raised to 44px, keyed off `pointer: coarse` rather than window width, because a phone in landscape is 800px wide and still operated with a thumb.
+- Verified at 375, 640, 700, 768, 806, 894 and 994px: navigation present at every width, nothing outside the viewport, and the desktop layout unchanged above the breakpoint.
+
+## R32a - 2026-08-08 — Mobile top bar was unusable
+- **The notifications button and the avatar were rendered off-screen on phones.** At 375px the language `<select>` sizes itself to its longest option — 184px, more than half the available space — and with `flex-wrap: nowrap` the overflow spilled past the start edge. In RTL that means the left edge: the bell, the badge, the settings button and the avatar all sat at negative x, clipped and unreachable. Everything else in the bar fitted in 126px combined; the switcher alone caused it.
+- Constrained the switcher (92px ≤768px, 74px ≤380px) and tightened the bar's padding and gaps at mobile widths. Verified at 375px: nothing outside the viewport, all four controls reachable. Desktop is untouched — above the breakpoint the switcher is still full width.
+- Checked in all four languages at mobile width: zero overflowing elements in he/en/ru/ar, and the document direction flips correctly (rtl for he/ar, ltr for en/ru).
+
 ## R31 - 2026-08-08 — No invented content on a live app
 - **The activity simulator was fabricating engagement on real listings.** Every 12 seconds it could announce a post by a person who doesn't exist ("שירה בן פרסם: עוגות שוקולד"), and it incremented `likes` on a *random* post — including posts loaded from the DB. Now that likes are real rows, that made the number on screen contradict the database and reset on reload. The simulator is now inert whenever a backend is connected, and even offline it only ever touches demo posts.
 - **Bundled demo listings are hidden once a real backend is connected.** With the DB empty, the feed showed 5 invented products that a visitor had no way to distinguish from genuine ones. They still appear in offline/demo mode, where they're the only content there is. One flag at the top of app.js (`SHOW_DEMO_WHEN_LIVE`) puts them back for a presentation.
