@@ -45,6 +45,19 @@ function backendConfigured() {
       && typeof SUPABASE_ANON_KEY === 'string' && SUPABASE_ANON_KEY.length > 20 && !SUPABASE_ANON_KEY.includes('YOUR-');
 }
 
+// R41: the feed asked for whole rows. Measured against 300 listings at 60
+// concurrent requests: select=* took 829ms and 33KB, the same query without
+// the description took 209ms and 9KB. The description is three quarters of
+// the weight for a card that shows two lines of it, so the feed reads the
+// generated `summary` column and the full text is fetched on open.
+const FEED_COLUMNS = [
+  'id', 'created_at', 'user_id', 'client_id', 'feed_type', 'product', 'category', 'emoji',
+  'media_url', 'media_type', 'summary', 'location', 'tags', 'taken',
+  'likes_count', 'comments_count', 'expiry', 'price', 'free',
+  'original_price', 'sale_price', 'quantity', 'discount_pct',
+  'user_name', 'user_avatar', 'is_business', 'biz_name',
+].join(',');
+
 // DB row → post object the UI understands
 function rowToPost(r) {
   const user = {
@@ -59,7 +72,11 @@ function rowToPost(r) {
     id: nextPostId++, dbId: r.id, ownerUid: r.user_id || null, feedType: r.feed_type, user,
     product: r.product, category: r.category || '', emoji: r.emoji || '📦',
     image: r.media_url || null, mediaType: r.media_type || 'image',
-    desc: r.description || r.product, location: r.location || '',
+    // `summary` when it came from the feed, `description` when the full row
+    // was fetched. _fullDesc records which, so openDetail knows to top it up.
+    desc: r.description || r.summary || r.product,
+    _fullDesc: r.description != null,
+    location: r.location || '',
     tags: Array.isArray(r.tags) ? r.tags : [],
     taken: !!r.taken,
     // R37: counts arrive with the row, maintained by a trigger
@@ -209,7 +226,7 @@ async function backendInit() {
       ? AUTH.client
       : supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
     const { data, error } = await BACKEND.client
-      .from('posts').select('*')
+      .from('posts').select(FEED_COLUMNS)
       .order('created_at', { ascending: false })
       .range(0, BACKEND.pageSize - 1);
     if (error) { console.error('[backend] load failed:', error.message); showDemoBanner(error.message); return; }
@@ -433,6 +450,21 @@ async function backendHydrateSocial(posts) {
   } catch (e) { console.warn('[backend] social hydrate failed:', e.message || e); }
 }
 
+// R41: the feed carries a 200-character summary. Opening a listing tops it up
+// with the full text — one small query for the one listing you're looking at,
+// instead of every description for every card you scrolled past.
+window.backendLoadFullPost = async function (post) {
+  if (!BACKEND.ready || !post.dbId || post._fullDesc) return;
+  try {
+    const { data, error } = await BACKEND.client.from('posts').select('description').eq('id', post.dbId).single();
+    if (error || !data) return;
+    post.desc = data.description || post.desc;
+    post._fullDesc = true;
+    const el = document.querySelector('#detail-content .detail-desc');
+    if (el) el.textContent = post.desc;
+  } catch (e) {}
+};
+
 // Comments load when a thread is actually opened — a feed of 30 posts should
 // not download every comment on every one of them up front.
 window.backendLoadComments = async function (post) {
@@ -490,7 +522,7 @@ async function backendRefreshLatest() {
   if (!BACKEND.ready) return;
   try {
     const { data, error } = await BACKEND.client
-      .from('posts').select('*')
+      .from('posts').select(FEED_COLUMNS)
       .order('created_at', { ascending: false })
       .limit(BACKEND.pageSize);
     if (error || !data) return;
@@ -604,7 +636,7 @@ window.backendSearch = async function (query) {
   const pattern = '%' + q.replace(/[%_,]/g, ' ') + '%';
   try {
     const { data, error } = await BACKEND.client
-      .from('posts').select('*')
+      .from('posts').select(FEED_COLUMNS)
       .or(`product.ilike.${pattern},description.ilike.${pattern},location.ilike.${pattern},user_name.ilike.${pattern}`)
       .order('created_at', { ascending: false })
       .limit(50);
@@ -623,7 +655,7 @@ window.backendLoadMore = async function () {
   try {
     const from = BACKEND.loaded, to = from + BACKEND.pageSize - 1;
     const { data, error } = await BACKEND.client
-      .from('posts').select('*')
+      .from('posts').select(FEED_COLUMNS)
       .order('created_at', { ascending: false })
       .range(from, to);
     if (error) { console.warn('[backend] page load failed:', error.message); return; }

@@ -681,6 +681,8 @@ function openDetail(id, ft) {
       </div></div>`;
   }
   document.getElementById('detail-content').innerHTML=html;
+  // R41: the card only had the summary — pull the full description now.
+  if (post.dbId && !post._fullDesc && typeof backendLoadFullPost === 'function') backendLoadFullPost(post);
   document.getElementById('detail-modal-overlay').classList.remove('hidden');
   document.body.style.overflow='hidden';
   // Owner-only controls: delete + edit (real posts you own)
