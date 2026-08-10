@@ -985,11 +985,18 @@ function renderChatList() {
     c.innerHTML=`<div class="chat-list-empty"><span style="font-size:2.4rem">💬</span><div class="chat-list-empty-title">${t('chat_empty_none')}</div><div class="chat-list-empty-hint">${t('chat_empty_hint')}</div><button class="btn-primary" style="margin-top:12px" onclick="showPage('feed')">${t('go_to_feed')}</button></div>`;
     return;
   }
-  c.innerHTML=CONVERSATIONS.map(cv=>`<div class="chat-convo-item ${activeConvoId===cv.id?'active':''} ${cv.unread>0?'has-unread':''}" onclick="openConversation('${esc(cv.id)}')">
+  c.innerHTML=CONVERSATIONS.map(cv=>`<div class="chat-convo-item ${activeConvoId===cv.id?'active':''} ${cv.unread>0?'has-unread':''}" data-convo="${esc(cv.id)}">
     <div class="chat-convo-avatar"><img src="${safeUrl(cv.user.avatar)}" alt="${esc(cv.user.name)}"/>${chatStatus(cv).online?'<div class="online-dot"></div>':''}</div>
     <div class="chat-convo-info"><div class="chat-convo-name">${esc(cv.user.isBusiness?cv.user.bizName:cv.user.name)}</div><div class="chat-convo-preview">${esc(cv.preview)}</div></div>
     <div class="chat-convo-meta"><div class="chat-convo-time">${esc(cv.time)}</div>${cv.unread>0?`<div class="chat-unread">${Number(cv.unread)}</div>`:''}</div>
   </div>`).join('');
+  // R43: the last place an id was interpolated into an inline handler. The id
+  // is internally generated now so it was no longer exploitable, but the
+  // pattern itself is the bug — esc() is not a JS-string encoder. Removed
+  // rather than left as a trap for the next person to copy.
+  c.querySelectorAll('[data-convo]').forEach(el => {
+    el.addEventListener('click', () => openConversation(el.dataset.convo));
+  });
 }
 
 function openConversation(id) {
