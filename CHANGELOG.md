@@ -1,5 +1,13 @@
 ﻿# CHANGELOG - פגיה בעיר
 
+## R38 - 2026-08-10 — הועבר לאירופה
+- **בסיס הנתונים ישב ב-ap-northeast-1 (טוקיו)** בזמן שהמשתמשים בישראל. כל פעולה — טעינת פיד, לייק, הודעה — חצתה את כדור הארץ הלוך ושוב. נמדד: 330ms לבקשה מלאה, מתוכם 304ms רשת נקייה.
+- פרויקט חדש ב-EU. אותה בקשה בדיוק: **82ms לעומת 330ms — פי ארבעה מהיר יותר.**
+- המעבר נעשה עכשיו דווקא כי בסיס הנתונים היה ריק. עם מודעות ומשתמשים זו כבר הגירה עם השבתה.
+- SCHEMA_FRESH.sql: הסכימה המאוחדת במצב הסופי שלה בקובץ אחד, במקום השכבות ההיסטוריות של R15 עד R37. הועלתה ואומתה: כל הטבלאות, המדיניות, הטריגרים והאינדקסים קיימים, וכתיבה בלי חשבון נחסמת (401).
+- שיפור אגב: העלאת קבצים לאחסון דורשת עכשיו התחברות. בפרויקט הישן כל אחד יכול היה להעלות בלי חשבון.
+- הפרויקט הישן נשאר קיים כרשת ביטחון עד לאימות מלא.
+
 ## R37 - 2026-08-09 — Scale: the three things that break first
 Verified first that the write paths actually work: three anonymous sessions published listings, liked, commented and held a private conversation against the live project — 22/22 checks passed, including that an outsider reading someone else’s chat gets zero rows. All test data removed afterwards.
 Then the parts that would not survive an audience:
