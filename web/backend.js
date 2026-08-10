@@ -218,6 +218,7 @@ async function backendInit() {
     renderFeed(); renderExpirySoon(); renderDealsWidget();
     try { updateProfileStats(); renderSidebarStats(); renderLeaderboard(); } catch (e) {}
     backendHydrateSocial(pag.concat(stk)).then(() => renderFeed());
+    loadBlocks();   // R39: apply this account's block list to what's on screen
 
     // Live updates: new posts from OTHER users appear instantly.
     // Notification fires ONLY if the post location matches the user's
@@ -484,6 +485,83 @@ async function backendRefreshLatest() {
   } catch (e) { console.warn('[backend] catch-up failed:', e.message || e); }
 }
 window.backendRefreshLatest = backendRefreshLatest;
+
+// =====================================================================
+// R39 — reporting, blocking, rate limits
+// All three are enforced in the database. What lives here is the wiring
+// and the wording; a check that only exists in the browser is a polite
+// suggestion, not a protection.
+// =====================================================================
+
+// The server raises a specific error when someone posts too fast. Turn it
+// into something a person can act on instead of a raw Postgres message.
+function friendlyError(error) {
+  const m = String((error && error.message) || '');
+  if (/rate_limit_exceeded/.test(m)) return t('err_rate_limit');
+  if (/row-level security/i.test(m)) return t('err_not_allowed');
+  if (/duplicate key|already exists/i.test(m)) return t('err_already_done');
+  return m || t('err_generic');
+}
+window.friendlyError = friendlyError;
+
+window.backendReportPost = async function (post, reason, detail) {
+  if (!BACKEND.ready || !post.dbId) return { ok: false, msg: t('err_generic') };
+  if (!ME.uid) { requireLogin('login_to_report'); return { ok: false }; }
+  const { error } = await BACKEND.client.from('post_reports')
+    .insert({ post_id: post.dbId, reporter_id: ME.uid, reason, detail: detail || null });
+  if (error) return { ok: false, msg: friendlyError(error) };
+  return { ok: true };
+};
+
+// Blocking hides their listings and comments and stops messages in both
+// directions — the database policies do the enforcing, this keeps the
+// screen in step without waiting for a reload.
+window.backendBlockUser = async function (uid) {
+  if (!BACKEND.ready || !uid) return { ok: false };
+  if (!ME.uid) { requireLogin('login_to_block'); return { ok: false }; }
+  const clean = String(uid).replace(/^db-/, '');
+  const { error } = await BACKEND.client.from('user_blocks').insert({ blocker_id: ME.uid, blocked_id: clean });
+  if (error) return { ok: false, msg: friendlyError(error) };
+  BLOCKED.add(clean);
+  dropBlockedFromMemory(clean);
+  return { ok: true };
+};
+
+window.backendUnblockUser = async function (uid) {
+  if (!BACKEND.ready || !ME.uid) return { ok: false };
+  const clean = String(uid).replace(/^db-/, '');
+  const { error } = await BACKEND.client.from('user_blocks').delete().eq('blocker_id', ME.uid).eq('blocked_id', clean);
+  if (error) return { ok: false, msg: friendlyError(error) };
+  BLOCKED.delete(clean);
+  return { ok: true };
+};
+
+const BLOCKED = new Set();
+window.BLOCKED = BLOCKED;
+window.isBlocked = function (uid) { return BLOCKED.has(String(uid || '').replace(/^db-/, '')); };
+
+async function loadBlocks() {
+  if (!BACKEND.ready || !ME.uid) return;
+  try {
+    const { data, error } = await BACKEND.client.from('user_blocks').select('blocked_id').eq('blocker_id', ME.uid);
+    if (error || !data) return;
+    BLOCKED.clear();
+    data.forEach(r => BLOCKED.add(r.blocked_id));
+    dropBlockedFromMemory();
+  } catch (e) {}
+}
+window.loadBlocks = loadBlocks;
+
+// Remove anything already on screen that belongs to a blocked person.
+function dropBlockedFromMemory(justBlocked) {
+  const gone = u => BLOCKED.has(String((u && u.id) || '').replace(/^db-/, '')) ||
+                    (justBlocked && String((u && u.id) || '').replace(/^db-/, '') === justBlocked);
+  [pagiaPosts, stockPosts].forEach(arr => {
+    for (let i = arr.length - 1; i >= 0; i--) if (arr[i].dbId && gone(arr[i].user)) arr.splice(i, 1);
+  });
+  for (let i = CONVERSATIONS.length - 1; i >= 0; i--) if (gone(CONVERSATIONS[i].user)) CONVERSATIONS.splice(i, 1);
+  try { renderFeed(); renderChatList(); } catch (e) {}
+}
 
 // R37: search the database, not the page you happen to have loaded.
 // Client-side filtering only ever looked at the ~30 posts in memory, so with a

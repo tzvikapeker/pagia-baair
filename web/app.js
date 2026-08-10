@@ -244,6 +244,75 @@ function getPost(id, ft) {
   return ft === 'stock' ? stockPosts.find(p=>p.id===id) : pagiaPosts.find(p=>p.id===id);
 }
 
+// =====================================================================
+// R39 — report and block, from the listing itself
+// A marketplace without these gets spam before it gets users, and the
+// person who needs them needs them at the moment they see the listing —
+// not buried in settings.
+// =====================================================================
+function openReportSheet(id, ft) {
+  const post = getPost(id, ft);
+  if (!post) return;
+  if (post.dbId && typeof isLoggedIn === 'function' && !isLoggedIn()) { requireLogin('login_to_report'); return; }
+  const reasons = [
+    ['spam', t('report_spam')],
+    ['offensive', t('report_offensive')],
+    ['scam', t('report_scam')],
+    ['wrong', t('report_wrong')],
+    ['other', t('report_other')],
+  ];
+  const seller = post.user || {};
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.id = 'report-overlay';
+  overlay.onclick = e => { if (e.target === overlay) closeReportSheet(); };
+  overlay.innerHTML = `<div class="modal report-modal">
+    <div class="modal-header">
+      <h3>${t('report_title')}</h3>
+      <button class="modal-close" onclick="closeReportSheet()">✕</button>
+    </div>
+    <div class="modal-body">
+      <p class="report-sub">${esc(post.product)}</p>
+      <div class="report-reasons">
+        ${reasons.map(([v, label]) => `<button class="report-reason" onclick="submitReport(${Number(id)},'${ft === 'stock' ? 'stock' : 'pagia'}','${v}')">${label}</button>`).join('')}
+      </div>
+      <div class="report-divider"></div>
+      <button class="report-block" onclick="confirmBlock('${esc(seller.id || '')}','${esc(seller.name || '')}')">
+        🚫 ${t('block_user')} — ${esc(seller.isBusiness ? (seller.bizName || seller.name) : seller.name)}
+      </button>
+      <p class="report-note">${t('block_note')}</p>
+    </div>
+  </div>`;
+  document.body.appendChild(overlay);
+  document.body.style.overflow = 'hidden';
+}
+function closeReportSheet() {
+  const o = document.getElementById('report-overlay');
+  if (o) o.remove();
+  document.body.style.overflow = '';
+}
+async function submitReport(id, ft, reason) {
+  const post = getPost(id, ft);
+  closeReportSheet();
+  if (!post) return;
+  if (!post.dbId) { showToast('✅ ' + t('report_thanks')); return; }   // demo listing
+  const r = await backendReportPost(post, reason);
+  if (r.ok) showToast('✅ ' + t('report_thanks'));
+  else if (r.msg) showToast('⚠️ ' + r.msg);
+}
+async function confirmBlock(uid, name) {
+  closeReportSheet();
+  if (!uid) return;
+  if (!confirm(t('block_confirm', { x: name || '' }))) return;
+  const r = await backendBlockUser(uid);
+  if (r.ok) showToast('🚫 ' + t('block_done'));
+  else if (r.msg) showToast('⚠️ ' + r.msg);
+}
+window.openReportSheet = openReportSheet;
+window.closeReportSheet = closeReportSheet;
+window.submitReport = submitReport;
+window.confirmBlock = confirmBlock;
+
 // R37: comment threads load only when opened, so the card can't count the
 // array — it reads the trigger-maintained counter that came with the row.
 // Demo posts have no counter and fall back to the array they carry.
@@ -629,6 +698,14 @@ function openDetail(id, ft) {
     note.className = 'taken-note';
     note.textContent = ft === 'pagia' ? t('status_taken') : t('status_sold');
     if (actions) actions.appendChild(note);
+  }
+  // R39: report / block — on anything that isn't yours.
+  if (actions && !isMine(post)) {
+    const rep = document.createElement('button');
+    rep.className = 'report-btn';
+    rep.textContent = '⚑ ' + t('report_action');
+    rep.onclick = () => openReportSheet(id, ft);
+    actions.appendChild(rep);
   }
 }
 
