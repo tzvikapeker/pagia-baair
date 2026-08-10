@@ -231,6 +231,7 @@ const I18N = {
   err_not_allowed:  { he:'אין לך הרשאה לפעולה הזו', en:'You’re not allowed to do that', ru:'Нет прав на это действие', ar:'ليس لديك صلاحية' },
   err_already_done: { he:'כבר עשית את זה', en:'You’ve already done that', ru:'Вы уже это сделали', ar:'فعلت ذلك بالفعل' },
   err_generic:      { he:'משהו השתבש, נסה שוב', en:'Something went wrong, try again', ru:'Что-то пошло не так', ar:'حدث خطأ، حاول مجدداً' },
+  block_unavailable:{ he:'אי אפשר לחסום את המפרסם הזה', en:'This poster can’t be blocked', ru:'Этого автора нельзя заблокировать', ar:'لا يمكن حظر هذا الناشر' },
   login_fill:       { he:'מלא את כל השדות', en:'Fill all fields', ru:'Заполните все поля', ar:'املأ كل الحقول' },
   login_check_email:{ he:'שלחנו לך מייל לאישור', en:'Check your email to confirm', ru:'Проверьте почту для подтверждения', ar:'تحقق من بريدك للتأكيد' },
   delete_confirm:   { he:'למחוק את הפוסט?', en:'Delete this post?', ru:'Удалить пост?', ar:'حذف المنشور؟' },

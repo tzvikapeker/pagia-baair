@@ -9,6 +9,7 @@
 
 const BACKEND = { client: null, ready: false, pageSize: 30, loaded: 0, exhausted: false, realCount: { pagia: 0, stock: 0 } };
 window.BACKEND = BACKEND;
+let _convoSeq = 0;   // R40: safe, local conversation ids — never derived from anything a sender controls
 // R35: set synchronously at load, before the first render — otherwise the feed
 // paints "nobody has posted yet" for a second and then swaps in real posts,
 // which reads as an empty app to anyone with a slow connection.
@@ -133,8 +134,26 @@ async function backendPublish(post) {
       row.discount_pct = post.discountPct || 0;
     }
     const { data, error } = await BACKEND.client.from('posts').insert(row).select('id').single();
-    if (error) console.error('[backend] insert failed:', error.message);
-    else { post.dbId = data.id; post.ownerUid = row.user_id; console.log('[backend] post synced to DB'); }
+    if (error) {
+      // R40: this used to be a console line. The listing stayed on screen with
+      // a "published!" toast while the server had rejected it — hit the rate
+      // limit and you were told you'd posted when you hadn't.
+      console.error('[backend] insert failed:', error.message);
+      const arr = post.feedType === 'stock' ? stockPosts : pagiaPosts;
+      const i = arr.indexOf(post); if (i >= 0) arr.splice(i, 1);
+      showToast('⚠️ ' + friendlyError(error));
+      renderFeed(); renderExpirySoon(); renderDealsWidget();
+      try { updateProfileStats(); } catch (e) {}
+      return;
+    }
+    post.dbId = data.id;
+    post.ownerUid = row.user_id;
+    // R40: liveFiltered() hides anything without a dbId once a backend is
+    // connected, so between the local insert and this line the new listing was
+    // invisible — the author published and watched nothing appear.
+    renderFeed(); renderExpirySoon(); renderDealsWidget();
+    try { updateProfileStats(); renderProfileGrid(post.feedType); renderSidebarStats(); renderLeaderboard(); } catch (e) {}
+    console.log('[backend] post synced to DB');
   } catch (e) {
     console.error('[backend] publish error:', e.message || e);
   }
@@ -262,7 +281,11 @@ async function backendInit() {
         const time = new Date(m.created_at).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' });
         let cv = CONVERSATIONS.find(c => c.room === m.room);
         if (!cv) {
-          cv = { id: 'r' + m.room, room: m.room,
+          // R40: the id goes straight into DOM ids and inline handlers, so it
+          // must never carry anything a sender controls. `room` is free text
+          // chosen by whoever sent the message — using it here let an attacker
+          // close the attribute and inject markup into the recipient's page.
+          cv = { id: 'r' + (++_convoSeq), room: m.room,
             user: { id: 'db-' + m.client_id, name: m.sender_name || 'משתמש', avatar: m.sender_avatar || ('https://api.dicebear.com/7.x/avataaars/svg?seed=' + encodeURIComponent(m.sender_name || 'u')), isBusiness: false },
             online: true, unread: 0, preview: '', time: 'עכשיו', messages: [] };
           // The room is "<postId>:<buyer>", so the seller's side can show which
@@ -444,7 +467,7 @@ window.backendToggleLike = function (post, nowLiked) {
     ? BACKEND.client.from('post_likes').insert({ post_id: post.dbId, user_id: ME.uid })
     : BACKEND.client.from('post_likes').delete().eq('post_id', post.dbId).eq('user_id', ME.uid);
   return q.then(({ error }) => {
-    if (error) { console.warn('[backend] like failed:', error.message); return false; }
+    if (error) { console.warn('[backend] like failed:', error.message); showToast('⚠️ ' + friendlyError(error)); return false; }
     return true;
   });
 };
@@ -554,12 +577,17 @@ window.loadBlocks = loadBlocks;
 
 // Remove anything already on screen that belongs to a blocked person.
 function dropBlockedFromMemory(justBlocked) {
-  const gone = u => BLOCKED.has(String((u && u.id) || '').replace(/^db-/, '')) ||
-                    (justBlocked && String((u && u.id) || '').replace(/^db-/, '') === justBlocked);
+  // R40: keyed on the account id. It used to compare against user.id, which is
+  // "db-<client_id>" — a per-browser string, never a uuid — so the block list
+  // matched nothing and no listing was ever actually hidden.
+  const gone = post => {
+    const uid = post && post.ownerUid;
+    return !!uid && (BLOCKED.has(uid) || uid === justBlocked);
+  };
   [pagiaPosts, stockPosts].forEach(arr => {
-    for (let i = arr.length - 1; i >= 0; i--) if (arr[i].dbId && gone(arr[i].user)) arr.splice(i, 1);
+    for (let i = arr.length - 1; i >= 0; i--) if (arr[i].dbId && gone(arr[i])) arr.splice(i, 1);
   });
-  for (let i = CONVERSATIONS.length - 1; i >= 0; i--) if (gone(CONVERSATIONS[i].user)) CONVERSATIONS.splice(i, 1);
+  for (let i = CONVERSATIONS.length - 1; i >= 0; i--) { const su = CONVERSATIONS[i].sellerUid; if (su && (BLOCKED.has(su) || su === justBlocked)) CONVERSATIONS.splice(i, 1); }
   try { renderFeed(); renderChatList(); } catch (e) {}
 }
 
@@ -685,7 +713,7 @@ sendChatMessage = function (id) {
   const cv = CONVERSATIONS.find(c => c.id === id);
   if (!BACKEND.ready || !cv || !cv.room) { _origSendChat(id); return; }
   if (typeof isLoggedIn === 'function' && !isLoggedIn()) { requireLogin('login_to_chat'); return; }
-  const inp = document.getElementById('ci-chat-' + id);
+  const inp = document.querySelector('#chat-window .chat-input-field');
   if (!inp || !inp.value.trim()) return;
   const text = inp.value.trim();
   cv.messages.push({ from: 'me', text, time: new Date().toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' }), status: 'sent' });
@@ -695,7 +723,7 @@ sendChatMessage = function (id) {
   renderChatList();
   BACKEND.client.from('chat_messages')
     .insert(Object.assign({ room: cv.room, client_id: CLIENT_ID, user_id: (ME.uid || null), sender_name: ME.name, sender_avatar: ME.avatar, text }, chatParticipants(cv)))
-    .then(({ error }) => { if (error) console.error('[backend] chat send failed:', error.message); });
+    .then(({ error }) => { if (error) { console.error('[backend] chat send failed:', error.message); showToast('⚠️ ' + friendlyError(error)); const i = cv.messages.length - 1; if (i >= 0 && cv.messages[i].from === 'me') { cv.messages.splice(i, 1); const el = document.getElementById('cm-' + id); if (el) el.innerHTML = buildMessages(cv); } } });
 };
 
 // Chat media: DB rooms → upload to storage + insert row; demo rooms → original local behavior
@@ -710,7 +738,7 @@ deliverChatMedia = function (cv, src, type) {
       if (!url) { showToast('⚠️ ' + t('media_too_big')); return; }
       const { error } = await BACKEND.client.from('chat_messages')
         .insert(Object.assign({ room: cv.room, client_id: CLIENT_ID, user_id: (ME.uid || null), sender_name: ME.name, sender_avatar: ME.avatar, text: '', media_url: url, media_type: type }, chatParticipants(cv)));
-      if (error) console.error('[backend] chat media failed:', error.message);
+      if (error) { console.error('[backend] chat media failed:', error.message); showToast('⚠️ ' + friendlyError(error)); }
     } catch (e) { console.error('[backend] chat media error:', e.message || e); }
   })();
 };

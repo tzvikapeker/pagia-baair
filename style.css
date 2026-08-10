@@ -3060,3 +3060,38 @@ video.card-image { background: #000; }
 }
 .report-block:hover { background: rgba(255,107,107,0.16); }
 .report-note { color: var(--text-muted); font-size: 0.8rem; margin-top: 10px; text-align: center; }
+
+/* =====================================================================
+   R40 — search and filters were unreachable on a phone.
+   `.nav-center` (the search box) and `.filter-tabs` were both display:none
+   below 640px with no replacement, so the database search added in R37 and
+   the settings-driven "near me" filter from R29 could not be used at all on
+   the device most people would open this on. A layout sweep that measures
+   overflow will never catch a control that simply isn't there.
+   ===================================================================== */
+@media (max-width: 640px) {
+  .nav-center {
+    display: block;
+    position: fixed;
+    top: var(--nav-height);
+    inset-inline: 0;
+    z-index: 190;
+    padding: 8px 12px;
+    background: var(--bg-card);
+    border-bottom: 1px solid var(--border);
+  }
+  .nav-center .search-box,
+  .nav-center input { width: 100%; }
+  .main-layout { padding-top: calc(var(--nav-height) + 64px); }
+
+  .filter-tabs {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding-bottom: 4px;
+  }
+  .filter-tabs::-webkit-scrollbar { display: none; }
+  .filter-tab { flex: 0 0 auto; min-height: 40px; }
+}

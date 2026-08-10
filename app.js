@@ -277,19 +277,32 @@ function openReportSheet(id, ft) {
         ${reasons.map(([v, label]) => `<button class="report-reason" onclick="submitReport(${Number(id)},'${ft === 'stock' ? 'stock' : 'pagia'}','${v}')">${label}</button>`).join('')}
       </div>
       <div class="report-divider"></div>
-      <button class="report-block" onclick="confirmBlock('${esc(seller.id || '')}','${esc(seller.name || '')}')">
+      <button class="report-block" data-act="block">
         🚫 ${t('block_user')} — ${esc(seller.isBusiness ? (seller.bizName || seller.name) : seller.name)}
       </button>
       <p class="report-note">${t('block_note')}</p>
     </div>
   </div>`;
   document.body.appendChild(overlay);
+  // R40: the block button used to carry the seller's name inside an onclick
+  // string. esc() turns ' into &#39;, which the HTML parser decodes back to a
+  // real quote before the handler is compiled — so a display name of
+  // `');alert(1)//` executed. Nothing user-derived goes into markup; the
+  // handler closes over the values instead.
+  // It also received post.user.id — "db-<client_id>", a browser id — while
+  // user_blocks.blocked_id is a uuid. Every block failed on a type error.
+  // The account id is post.ownerUid.
+  overlay.querySelector('[data-act="block"]')?.addEventListener('click', () => {
+    confirmBlock(post.ownerUid, seller.isBusiness ? (seller.bizName || seller.name) : seller.name);
+  });
   document.body.style.overflow = 'hidden';
 }
 function closeReportSheet() {
   const o = document.getElementById('report-overlay');
   if (o) o.remove();
-  document.body.style.overflow = '';
+  // R40: the detail modal underneath may still be open — only release the
+  // page scroll if nothing else is holding it.
+  if (!document.querySelector('.modal-overlay:not(.hidden)')) document.body.style.overflow = '';
 }
 async function submitReport(id, ft, reason) {
   const post = getPost(id, ft);
@@ -302,7 +315,7 @@ async function submitReport(id, ft, reason) {
 }
 async function confirmBlock(uid, name) {
   closeReportSheet();
-  if (!uid) return;
+  if (!uid) { showToast('⚠️ ' + t('block_unavailable')); return; }
   if (!confirm(t('block_confirm', { x: name || '' }))) return;
   const r = await backendBlockUser(uid);
   if (r.ok) showToast('🚫 ' + t('block_done'));
@@ -751,9 +764,15 @@ function openPostModal() {
   if (!editingPost) selectPostType(currentFeedType==='stock'?'stock':'pagia');
 }
 function closePostModal(e) {
+  // A click inside the modal must not close it — bail before touching state.
   if (e&&e.target!==document.getElementById('post-modal-overlay')) return;
   document.getElementById('post-modal-overlay').classList.add('hidden');
   document.body.style.overflow='';
+  // R40: edit mode used to survive a cancelled edit, so the NEXT listing you
+  // wrote silently overwrote the one you had opened rather than creating a
+  // new one. It is cleared here and in resetPostForm, not only on save.
+  editingPost = null;
+  resetPostForm();
 }
 
 // R34: the three composer buttons each promised something different —
@@ -949,10 +968,25 @@ function openConversation(id) {
       <div class="chat-context-info"><div class="chat-context-name">${esc(cv.post.product)}</div><div class="chat-context-price">${esc(cv.post.price)}</div></div>
       <span class="chat-context-link">${t('view_listing')} ›</span>
     </div>` : ''}
-    <div class="chat-messages" id="cm-${id}">${buildMessages(cv)}</div>
+    <div class="chat-messages" id="cm-${esc(id)}">${buildMessages(cv)}</div>
     <div class="chat-typing hidden" id="typing-ind"><span></span><span></span><span></span></div>
-    <div class="chat-input-bar"><button class="chat-attach-btn" title="${t('attach_media')}" onclick="document.getElementById('cf-${id}').click()">📎</button><input type="file" id="cf-${id}" accept="image/*,video/*" style="display:none" onchange="chatSendMedia('${id}',event)"/><textarea id="ci-chat-${id}" class="chat-input-field" rows="1" placeholder="${t('chat_input_ph')}" oninput="autoGrow(this);chatTyping('${id}')" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendChatMessage('${id}');}"></textarea><button onclick="sendChatMessage('${id}')">${t('send')} &#x27A4;</button></div>`;
+    <div class="chat-input-bar"><button class="chat-attach-btn" title="${t('attach_media')}" data-act="attach">📎</button><input type="file" class="chat-file-input" accept="image/*,video/*" style="display:none"/><textarea class="chat-input-field" rows="1" placeholder="${t('chat_input_ph')}"></textarea><button data-act="send">${t('send')} &#x27A4;</button></div>`;
   const layout=document.querySelector('.chat-layout'); if (layout) layout.classList.add('convo-open');
+  // R40: the input bar is wired with listeners, not with inline handlers that
+  // interpolate the conversation id. The id derives from `room`, which the
+  // sender of a message chooses freely — putting it inside onclick="" let a
+  // crafted room string close the attribute and run script in the recipient's
+  // page. Nothing user-derived goes into markup here any more.
+  const file = win.querySelector('.chat-file-input');
+  const box  = win.querySelector('.chat-input-field');
+  const send = () => sendChatMessage(id);
+  win.querySelector('[data-act="attach"]')?.addEventListener('click', () => file && file.click());
+  file?.addEventListener('change', e => chatSendMedia(id, e));
+  win.querySelector('[data-act="send"]')?.addEventListener('click', send);
+  box?.addEventListener('input', () => { autoGrow(box); chatTyping(id); });
+  box?.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+  });
   scrollToBottom('cm-'+id);
 }
 
@@ -1023,7 +1057,7 @@ function closeConversation() {
 window.chatTyping = chatTyping; window.showTyping = showTyping; window.closeConversation = closeConversation;
 
 function sendChatMessage(id) {
-  const inp=document.getElementById('ci-chat-'+id); if (!inp||!inp.value.trim()) return;
+  const inp=document.querySelector('#chat-window .chat-input-field'); if (!inp||!inp.value.trim()) return;
   const cv=CONVERSATIONS.find(c=>c.id===id); if (!cv) return;
   cv.messages.push({from:'me',text:inp.value.trim(),time:new Date().toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit'}),status:'sent'});
   cv.preview=cv.messages[cv.messages.length-1].text; inp.value=''; inp.style.height='auto';
