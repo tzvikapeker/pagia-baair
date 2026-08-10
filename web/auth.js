@@ -51,9 +51,21 @@ function applyAuthUser() {
   ME.avatar = md.avatar_url || md.picture || ('https://api.dicebear.com/7.x/avataaars/svg?seed=' + encodeURIComponent(name));
   const nameEl = document.getElementById('profile-name'); if (nameEl) nameEl.textContent = name;
   const locEl = document.getElementById('profile-location'); if (locEl && ME.city) locEl.textContent = '📍 ' + ME.city;
-  document.querySelectorAll('.nav-avatar img, .profile-avatar').forEach(a => { a.src = ME.avatar; });
+  // R42: the composer showed a hardcoded stranger's face to signed-in users —
+  // applyIdentity only ever updated the nav and profile avatars.
+  document.querySelectorAll('.nav-avatar img, .profile-avatar, .composer-avatar').forEach(a => { a.src = ME.avatar; });
   // Let the user's own profile edits (settings) win over the account defaults.
   if (typeof applyIdentity === 'function') applyIdentity();
+  // R42: the session can resolve after the feed has already loaded — on any
+  // return visit where the stored token needs refreshing, that race was lost
+  // and you saw all your own likes as un-liked, with no way to correct it
+  // (clicking failed against the unique key and rolled back).
+  try {
+    if (typeof loadBlocks === 'function') loadBlocks();
+    if (typeof backendHydrateSocial === 'function') {
+      backendHydrateSocial([...pagiaPosts, ...stockPosts]).then(() => { try { renderFeed(); } catch (e) {} });
+    }
+  } catch (e) {}
   try { renderFeed(); renderChatList(); updateProfileStats(); } catch (e) {}
 }
 

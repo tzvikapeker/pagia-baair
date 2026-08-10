@@ -105,7 +105,9 @@ async function backendUploadMedia(dataUrl, mediaType) {
   try {
     const blob = await (await fetch(dataUrl)).blob();
     const ext = mediaType === 'video' ? 'mp4' : 'png';
-    const name = 'p' + Date.now() + '-' + Math.random().toString(36).slice(2, 8) + '.' + ext;
+    // R42: storage policy now requires each account to write under its own
+    // prefix, and only image/video extensions.
+    const name = (ME.uid || 'anon') + '/' + Date.now() + '-' + Math.random().toString(36).slice(2, 8) + '.' + ext;
     const { error } = await BACKEND.client.storage.from('media').upload(name, blob, { contentType: blob.type || undefined });
     if (error) throw error;
     return BACKEND.client.storage.from('media').getPublicUrl(name).data.publicUrl;
@@ -216,6 +218,11 @@ function showDemoBanner(reason) {
 async function backendInit() {
   if (!backendConfigured()) { console.log('[backend] not configured — running in local demo mode'); showDemoBanner('config.js'); return; }
   if (typeof supabase === 'undefined') { console.warn('[backend] supabase-js failed to load (offline?) — demo mode'); showDemoBanner('supabase-js'); return; }
+  // R42: a host that hangs rather than errors left BACKEND.loading true and the
+  // feed showing skeletons indefinitely — nothing cleared it but a response.
+  const failsafe = setTimeout(() => {
+    if (!BACKEND.ready) { console.warn('[backend] no response in 15s — demo mode'); showDemoBanner(t('err_timeout')); }
+  }, 15000);
   try {
     // Reuse auth.js's client instead of creating a second one. Two clients
     // sharing the same auth storage key made supabase-js warn about "Multiple
@@ -229,7 +236,7 @@ async function backendInit() {
       .from('posts').select(FEED_COLUMNS)
       .order('created_at', { ascending: false })
       .range(0, BACKEND.pageSize - 1);
-    if (error) { console.error('[backend] load failed:', error.message); showDemoBanner(error.message); return; }
+    if (error) { clearTimeout(failsafe); console.error('[backend] load failed:', error.message); showDemoBanner(error.message); return; }
     BACKEND.ready = true;
     BACKEND.loading = false;
     // R33: the app ships with demo notifications and demo conversations so the
@@ -267,11 +274,20 @@ async function backendInit() {
         // R37: a listing three cities away should not push itself into your
         // feed. Only what matches your settings gets inserted live; everything
         // else is simply skipped, which is also what keeps the fan-out sane.
-        const relevant = (typeof notifAllowsLocation === 'function') ? notifAllowsLocation(p.location) : true;
+        // R42: this used to decide whether the listing entered the feed at all,
+        // driven by a checkbox labelled "notifications only from my area" — so
+        // a notification preference silently hid content, and inconsistently:
+        // the first page load was never filtered, only live arrivals were.
+        // The setting now does what its label says. It gates the toast only.
+        const relevant = true;
+        // R42: the row exists in the table whether or not we choose to show it.
+        // Skipping the counter shifted every later .range() window by one, so
+        // the next page re-fetched rows we already had — duplicate cards, and
+        // the drift compounded the longer you scrolled.
+        BACKEND.loaded++;
         if (!relevant) return;
         (p.feedType === 'stock' ? stockPosts : pagiaPosts).unshift(p);
         BACKEND.realCount[p.feedType === 'stock' ? 'stock' : 'pagia']++;
-        BACKEND.loaded++;
         const feedPage = document.getElementById('page-feed');
         if (feedPage && feedPage.classList.contains('active') && currentFeedType === p.feedType) renderFeed();
         renderExpirySoon(); renderDealsWidget();
@@ -353,12 +369,15 @@ async function backendInit() {
         const row = payload.new; if (!row) return;
         const p = findByDbId(row.post_id); if (!p) return;
         if (row.user_id === ME.uid) return;
-        p.comments.push(commentRow(row));
+        // R42: the badge was set to p.comments.length — but since R37 that
+        // array is empty until the thread is opened, so a listing showing
+        // 💬 12 dropped to 💬 1 the moment anyone commented. The counter that
+        // came with the row is the truth; nudge it and re-read it.
+        if (typeof p.commentCount === 'number') p.commentCount++;
+        if (p._commentsLoaded) p.comments.push(commentRow(row));
         if (p.showComments && typeof refreshCommentUI === 'function') refreshCommentUI(p, p.feedType);
-        else {
-          const btn = document.querySelector(`#post-${p.id} .card-footer .action-btn:nth-child(2)`);
-          if (btn) btn.textContent = `💬 ${p.comments.length}`;
-        }
+        else document.querySelectorAll(`[id="post-${p.id}"] .card-footer .action-btn:nth-child(2)`)
+               .forEach(btn => { btn.textContent = `💬 ${commentCountOf(p)}`; });
       })
       .subscribe();
 
@@ -527,13 +546,14 @@ async function backendRefreshLatest() {
       .limit(BACKEND.pageSize);
     if (error || !data) return;
     const known = new Set([...pagiaPosts, ...stockPosts].filter(p => p.dbId).map(p => String(p.dbId)));
-    const fresh = data.filter(r => !known.has(String(r.id))).map(rowToPost)
-      .filter(p => (typeof notifAllowsLocation === 'function') ? notifAllowsLocation(p.location) : true);
+    const unseen = data.filter(r => !known.has(String(r.id))).map(rowToPost);
+    // R42: every unseen row moves the pagination window, shown or not.
+    BACKEND.loaded += unseen.length;
+    const fresh = unseen;   // R42: same reasoning as the live path — the notification setting no longer hides content
     if (!fresh.length) return;
     fresh.reverse().forEach(p => {
       (p.feedType === 'stock' ? stockPosts : pagiaPosts).unshift(p);
       BACKEND.realCount[p.feedType === 'stock' ? 'stock' : 'pagia']++;
-      BACKEND.loaded++;
     });
     renderFeed(); renderExpirySoon(); renderDealsWidget();
     console.log(`[backend] caught up — ${fresh.length} new`);

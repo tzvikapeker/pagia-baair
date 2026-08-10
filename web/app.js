@@ -155,7 +155,7 @@ window.addEventListener('DOMContentLoaded', () => {
       clearTimeout(deb);
       deb = setTimeout(() => {
         const q = e.target.value.trim().toLowerCase();
-        if (!q) { renderFeed(); return; }
+        if (!q) { SEARCH_RESULTS = []; renderFeed(); return; }
         showPage('feed');
         renderFeed(q);                       // instant answer from what's loaded
         // R37: then ask the database, which knows about everything else.
@@ -241,7 +241,10 @@ function renderFeed(searchQuery, filterFn) {
 }
 
 function getPost(id, ft) {
-  return ft === 'stock' ? stockPosts.find(p=>p.id===id) : pagiaPosts.find(p=>p.id===id);
+  const arr = ft === 'stock' ? stockPosts : pagiaPosts;
+  // R42: search results live outside the feed arrays now, so anything you tap
+  // in a result list has to be findable here too.
+  return arr.find(p => p.id === id) || SEARCH_RESULTS.find(p => p.id === id) || null;
 }
 
 // =====================================================================
@@ -331,18 +334,34 @@ window.confirmBlock = confirmBlock;
 // Demo posts have no counter and fall back to the array they carry.
 // Renders whatever the database returned for a search, merged with anything
 // already in memory so a result you can see doesn't disappear and come back.
+// R42: results used to be pushed permanently into pagiaPosts/stockPosts, so
+// after one search those listings stayed in the normal feed, the category
+// counts and the leaderboard forever — and they arrived without like state,
+// so the heart showed empty and clicking it failed against the unique key.
+// Results are held separately and dropped when the search is cleared.
+let SEARCH_RESULTS = [];
+window.SEARCH_RESULTS = SEARCH_RESULTS;
+
 function renderSearchResults(hits, query) {
   const grid = document.getElementById('feed-grid');
   if (!grid) return;
   const seen = new Set();
   const merged = [];
+  SEARCH_RESULTS = hits;
   hits.forEach(h => {
     const known = [...pagiaPosts, ...stockPosts].find(p => p.dbId && String(p.dbId) === String(h.dbId));
     const post = known || h;
-    if (!known) (h.feedType === 'stock' ? stockPosts : pagiaPosts).push(h);
     const k = postKey(post);
     if (k && !seen.has(k)) { seen.add(k); merged.push(post); }
   });
+  // a result you haven't seen before still needs its like state
+  const fresh = merged.filter(p => !p._hydrated);
+  if (fresh.length && typeof backendHydrateSocial === 'function') {
+    fresh.forEach(p => { p._hydrated = true; });
+    backendHydrateSocial(fresh).then(() => {
+      if (document.getElementById('search-input')?.value.trim().toLowerCase() === query) renderSearchResults(hits, query);
+    });
+  }
   if (!merged.length) {
     grid.innerHTML = `<div class="empty-state"><span>🔍</span><p>${t('empty_no_match')}</p><button class="btn-primary" onclick="renderFeed()">${t('empty_show_all')}</button></div>`;
     return;
@@ -421,7 +440,7 @@ function buildPagiaCard(post) {
       </div>
     </div>
     <div class="card-footer">
-      <button class="action-btn${post.liked?' liked':''}" onclick="toggleLike(${post.id},'pagia')">${post.liked?'\u2764\uFE0F':'\uD83E\uDD0D'} <span id="lc-${post.id}">${post.likes}</span></button>
+      <button class="action-btn${post.liked?' liked':''}" onclick="toggleLike(${post.id},'pagia')">${post.liked?'\u2764\uFE0F':'\uD83E\uDD0D'} <span class="lc">${post.likes}</span></button>
       <button class="action-btn" onclick="toggleComments(${post.id},'pagia')">\uD83D\uDCAC ${commentCountOf(post)}</button>
       <button class="action-btn chat-action" onclick="openChatFromPost(${post.id},'pagia')">\u2709\uFE0F ${t('btn_chat')}</button>
       <button class="action-btn save-action" onclick="toggleSave(${post.id},'pagia')">${isSaved(post,'pagia')?'\uD83D\uDD16':'\uD83C\uDFF7\uFE0F'} ${t('btn_save')}</button>
@@ -459,7 +478,7 @@ function buildStockCard(post) {
       </div>
     </div>
     <div class="card-footer">
-      <button class="action-btn${post.liked?' liked':''}" onclick="toggleLike(${post.id},'stock')">${post.liked?'\u2764\uFE0F':'\uD83E\uDD0D'} <span id="lc-${post.id}">${post.likes}</span></button>
+      <button class="action-btn${post.liked?' liked':''}" onclick="toggleLike(${post.id},'stock')">${post.liked?'\u2764\uFE0F':'\uD83E\uDD0D'} <span class="lc">${post.likes}</span></button>
       <button class="action-btn" onclick="toggleComments(${post.id},'stock')">\uD83D\uDCAC ${commentCountOf(post)}</button>
       <button class="action-btn" style="color:var(--accent3)" onclick="openChatFromPost(${post.id},'stock')">\u2709\uFE0F ${t('btn_chat_seller')}</button>
       <button class="action-btn save-action" onclick="toggleSave(${post.id},'stock')">${isSaved(post,'stock')?'\uD83D\uDD16':'\uD83C\uDFF7\uFE0F'}</button>
@@ -480,11 +499,13 @@ function toggleComments(id, ft) {
   const post = getPost(id, ft);
   if (!post) return;
   post.showComments = !post.showComments;
-  const sec = document.getElementById('comments-'+id);
-  if (!post.showComments) { sec.style.display='none'; return; }
-  sec.style.display='block';
-  sec.innerHTML=buildComments(post,ft);
-  setTimeout(()=>sec.querySelector('input')?.focus(),50);
+  // R42: open/close every copy of this card (feed and Saved both hold one).
+  const secs = [...cardsFor(post)].map(c => c.querySelector('.comments-section')).filter(Boolean);
+  if (!secs.length) return;
+  if (!post.showComments) { secs.forEach(s => { s.style.display='none'; }); return; }
+  secs.forEach(s => { s.style.display='block'; s.innerHTML = buildComments(post, ft); });
+  const visible = [...cardsFor(post)].find(c => c.offsetParent !== null);
+  setTimeout(() => visible?.querySelector('.comments-section input')?.focus(), 50);
   // R37: fetch the thread on demand rather than with the feed
   if (post.dbId && !post._commentsLoaded && typeof backendLoadComments === 'function') {
     backendLoadComments(post).then(() => { if (post.showComments) refreshCommentUI(post, ft); });
@@ -492,14 +513,17 @@ function toggleComments(id, ft) {
 }
 
 function refreshCommentUI(post, ft) {
-  const sec = document.getElementById('comments-' + post.id);
-  if (sec) {
-    sec.innerHTML = buildComments(post, ft);
-    const inp = sec.querySelector('input');
-    if (inp) inp.focus();
-  }
-  const btn = document.querySelector(`#post-${post.id} .card-footer .action-btn:nth-child(2)`);
-  if (btn) btn.textContent = `\uD83D\uDCAC ${commentCountOf(post)}`;
+  let focused = false;
+  cardsFor(post).forEach(card => {
+    const sec = card.querySelector('.comments-section');
+    if (sec && sec.style.display !== 'none') {
+      sec.innerHTML = buildComments(post, ft);
+      const inp = sec.querySelector('input');
+      if (inp && !focused && card.offsetParent !== null) { inp.focus(); focused = true; }
+    }
+    const btn = card.querySelector('.card-footer .action-btn:nth-child(2)');
+    if (btn) btn.textContent = `\uD83D\uDCAC ${commentCountOf(post)}`;
+  });
 }
 
 // R30: comments are written to the DB. They used to be pushed into an in-memory
@@ -533,11 +557,19 @@ function addComment(id, ft) {
   }
 }
 
+// R42: the same listing can be on screen twice \u2014 once in the feed, once in
+// Saved \u2014 carrying identical ids. querySelector returned whichever came
+// first in the document, which was the hidden feed copy, so tapping \u2764\uFE0F or \uD83D\uDCAC
+// on the Saved page appeared to do nothing. Every copy is updated now.
+function cardsFor(post) { return document.querySelectorAll(`[id="post-${post.id}"]`); }
+
 function paintLike(post) {
-  const btn = document.querySelector(`#post-${post.id} .card-footer .action-btn`);
-  if (!btn) return;
-  btn.classList.toggle('liked', post.liked);
-  btn.innerHTML = `${post.liked ? '\u2764\uFE0F' : '\uD83E\uDD0D'} <span id="lc-${post.id}">${Number(post.likes) || 0}</span>`;
+  cardsFor(post).forEach(card => {
+    const btn = card.querySelector('.card-footer .action-btn');
+    if (!btn) return;
+    btn.classList.toggle('liked', post.liked);
+    btn.innerHTML = `${post.liked ? '\u2764\uFE0F' : '\uD83E\uDD0D'} <span class="lc">${Number(post.likes) || 0}</span>`;
+  });
 }
 
 // R30: a like is now a row in the DB, so the count is real and shared. On a
@@ -1091,7 +1123,7 @@ function renderProfileGrid(tab) {
   if (!posts.length){grid.innerHTML=`<div style="color:var(--text-secondary);font-size:0.9rem;padding:20px 0;grid-column:1/-1">\u05E2\u05D3\u05D9\u05D9\u05DF \u05DC\u05D0 \u05E4\u05E8\u05E1\u05DE\u05EA</div>`;return;}
   grid.innerHTML=posts.map(p=>{
     const s=safeUrl(p.image)?`<img src="${safeUrl(p.image)}" alt="${esc(p.product)}" data-emoji="${esc(p.emoji)}" onerror="imgFallback(this)"/>`:`<div style="background:var(--bg-secondary);width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:2.5rem">${esc(p.emoji)}</div>`;
-    return `<div class="mini-card" onclick="openDetail(${Number(p.id)},'${tab==='stock'?'stock':'pagia'}')">${s}<div class="mini-card-overlay">\u2764\uFE0F ${Number(p.likes)||0} \u00B7 \uD83D\uDCAC ${p.comments.length}</div></div>`;
+    return `<div class="mini-card" onclick="openDetail(${Number(p.id)},'${tab==='stock'?'stock':'pagia'}')">${s}<div class="mini-card-overlay">\u2764\uFE0F ${Number(p.likes)||0} \u00B7 \uD83D\uDCAC ${commentCountOf(p)}</div></div>`;
   }).join('');
 }
 
@@ -1241,8 +1273,10 @@ function startLiveActivity() {
       if (!allPosts.length) return;
       const post = allPosts[Math.floor(Math.random()*allPosts.length)];
       post.likes++;
-      const el = document.getElementById('lc-' + post.id);
-      if (el) { el.textContent = post.likes; el.parentElement.animate([{color:'var(--accent2)'},{color:''}],{duration:600}); }
+      cardsFor(post).forEach(card => {
+        const el = card.querySelector('.lc');
+        if (el) { el.textContent = post.likes; el.parentElement.animate([{ color: 'var(--accent2)' }, { color: '' }], { duration: 600 }); }
+      });
     },
   ];
   setInterval(() => {
@@ -1424,6 +1458,19 @@ function renderCategoryCounts() {
     const el = document.getElementById(elId);
     if (el) el.textContent = all.filter(p => p.category === cat).length;
   });
+
+  // R42: the city counts were literals in the HTML — 34 in Tel Aviv, 21 in
+  // Haifa — shown against an empty database. R33 replaced the sidebar
+  // statistics and the leaderboard but stopped short of these. Counted for
+  // real now, and a city with nothing in it says so instead of inventing.
+  const cityMap = {
+    'תל אביב': 'city-tlv', 'ירושלים': 'city-jlm', 'חיפה': 'city-hfa',
+    'נתניה': 'city-ntn', 'באר שבע': 'city-bs', 'ראשון לציון': 'city-rl',
+  };
+  Object.entries(cityMap).forEach(([city, elId]) => {
+    const el = document.getElementById(elId);
+    if (el) el.textContent = all.filter(p => (p.location || '').includes(city)).length;
+  });
 }
 
 // renderCard - unified wrapper (used by saved page)
@@ -1439,7 +1486,9 @@ window.__rerenderDynamic = function () {
   try { renderChatList(); } catch (e) {}
   try {
     const activeTab = document.querySelector('.profile-post-tab.active');
-    renderProfileGrid(activeTab && activeTab.textContent.includes('סטוק') ? 'stock' : 'pagia');
+    // R42: this read the tab's Hebrew label, so switching the interface to
+    // English, Russian or Arabic silently threw you back to the pagia grid.
+    renderProfileGrid(activeTab && activeTab.dataset.tab === 'stock' ? 'stock' : 'pagia');
   } catch (e) {}
   try { renderExpirySoon(); } catch (e) {}
   try { renderDealsWidget(); } catch (e) {}

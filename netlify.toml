@@ -1,7 +1,5 @@
 # Static site — no build step.
 # Publishes web/ — the curated browser-only bundle produced by make-web.ps1.
-# (Previously "." , which served the whole repo: docs, .bat/.ps1 scripts,
-#  supabase-schema.sql and package.json were all publicly reachable.)
 # Note: netlify.toml is deliberately NOT copied into web/, so the manual
 # "drag web/ to Netlify Drop" path still treats the dropped folder as the root.
 [build]
@@ -11,3 +9,18 @@
 # node_modules is Electron-only and not needed for the web app.
 [build.environment]
   NETLIFY_USE_YARN = "false"
+
+# R42 — a second line of defence.
+# Every XSS hole found in review has been closed, but a policy means the next
+# one that slips through cannot phone home or load an attacker's script.
+# 'unsafe-inline' is still required: the markup carries inline handlers and
+# inline styles. Removing those is the next step, and only then is the policy
+# genuinely strict.
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https:; media-src 'self' data: blob: https:; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://ipapi.co; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'"
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "geolocation=(self), camera=(), microphone=(), payment=()"
